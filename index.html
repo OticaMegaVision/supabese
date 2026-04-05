@@ -7539,8 +7539,9 @@ DROP POLICY IF EXISTS "otica_allow_all" ON otica_data;
 CREATE POLICY "otica_allow_all"
   ON otica_data FOR ALL USING (true) WITH CHECK (true);
 
--- 4. Realtime já está habilitado (foi configurado na criação)
--- Se precisar reativar: ALTER PUBLICATION supabase_realtime ADD TABLE otica_data;
+-- 4. Realtime — habilita e garante REPLICA IDENTITY FULL (obrigatório para filtro por store_id)
+ALTER TABLE otica_data REPLICA IDENTITY FULL;
+ALTER PUBLICATION supabase_realtime ADD TABLE otica_data;
 
 -- ── ESTRUTURA DOS DADOS ─────────────────────────────────────────
 -- store_id = 'barueri' ou 'caucaia'  (as duas lojas ficam separadas)
@@ -9062,11 +9063,36 @@ CREATE POLICY "otica_allow_all"
             const { error } = await supabase.from('otica_data').delete().eq('store_id', storeId);
             if (error) throw error;
         }
-        async function sbUpsertBatch(rows) {
-            const { error } = await supabase
-                .from('otica_data')
-                .upsert(rows, { onConflict: 'doc_id,store_id,collection' });
-            if (error) throw error;
+        async function sbUpsertBatch(rows, retries = 4) {
+            for (let attempt = 1; attempt <= retries; attempt++) {
+                try {
+                    const { error } = await supabase
+                        .from('otica_data')
+                        .upsert(rows, { onConflict: 'doc_id,store_id,collection' });
+                    if (!error) return;
+                    // Erro do Supabase (não de rede) — lança imediatamente
+                    throw new Error(error.message || JSON.stringify(error));
+                } catch (e) {
+                    if (attempt === retries) throw e;
+                    const delay = 600 * attempt;
+                    console.warn(`[sbUpsertBatch] tentativa ${attempt}/${retries} falhou (${e.message}). Retentando em ${delay}ms...`);
+                    await new Promise(r => setTimeout(r, delay));
+                }
+            }
+        }
+
+        // Executa promises em paralelo com limite de concorrência
+        async function _pLimit(tasks, concurrency = 5) {
+            const results = [];
+            let idx = 0;
+            async function worker() {
+                while (idx < tasks.length) {
+                    const i = idx++;
+                    results[i] = await tasks[i]();
+                }
+            }
+            await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, worker));
+            return results;
         }
 
         // ── IDB shim: mantém API legacy — agora usa apenas memória ─────────
@@ -9167,7 +9193,11 @@ CREATE POLICY "otica_allow_all"
             // ── Boot: inicia listeners em tempo real ────────────────────────
             boot() {
                 this._startListeners(window._currentStore || 'barueri');
-                window.addEventListener('online',  () => { Toast.show('🌐 Conexão restaurada', 'info', 2000); });
+                window.addEventListener('online',  () => {
+                    Toast.show('🌐 Conexão restaurada — reconectando Realtime...', 'info', 2500);
+                    // Reconecta automaticamente ao recuperar conexão
+                    setTimeout(() => this._startListeners(window._currentStore || 'barueri'), 1000);
+                });
                 window.addEventListener('offline', () => { Toast.show('📵 Sem conexão — Supabase requer internet', 'warning', 3000); });
                 console.log('[Supabase] Boot completo — listeners ativos para loja:', window._currentStore);
             },
@@ -9193,9 +9223,17 @@ CREATE POLICY "otica_allow_all"
                     .subscribe((status) => {
                         if (status === 'SUBSCRIBED') {
                             this._realtimeStatus = 'Ativo';
+                            this._reconnectAttempts = 0;
                             console.log('[Supabase] Realtime conectado para loja:', storeId);
-                        } else if (status === 'CHANNEL_ERROR') {
+                        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
                             this._realtimeStatus = 'Erro';
+                            console.warn('[Supabase] Realtime status:', status, '— reconectando...');
+                            this._reconnectAttempts = (this._reconnectAttempts || 0) + 1;
+                            const delay = Math.min(2000 * this._reconnectAttempts, 30000);
+                            clearTimeout(this._reconnectTimer);
+                            this._reconnectTimer = setTimeout(() => {
+                                if (navigator.onLine) this._startListeners(storeId);
+                            }, delay);
                         }
                         this._updatePanel();
                     });
@@ -12057,6 +12095,8 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                 const now = new Date().toISOString();
                 const storeId = window._currentStore || 'barueri';
                 const TABLES = ['clients','products','sales','expenses','prescriptions','suppliers','services'];
+                const BATCH_SIZE = 100;
+                const CONCURRENCY = 5;
                 // Normaliza timestamps
                 TABLES.forEach(key => {
                     if (Array.isArray(state[key])) {
@@ -12070,17 +12110,21 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                         const items = (state[key] || []).filter(i => i && i.id);
                         if (!items.length) continue;
                         const col = _COL_MAP[key] || key;
-                        for (let i = 0; i < items.length; i += 20) {
-                            const chunk = items.slice(i, i + 20);
-                            const rows = chunk.map(item => ({
-                                doc_id: String(item.id),
-                                store_id: storeId,
-                                collection: col,
-                                data: { ...item, _store: storeId, _updatedAt: now },
-                                updated_at: now
-                            }));
-                            await sbUpsertBatch(rows);
+                        const tasks = [];
+                        for (let i = 0; i < items.length; i += BATCH_SIZE) {
+                            const chunk = items.slice(i, i + BATCH_SIZE);
+                            tasks.push(async () => {
+                                const rows = chunk.map(item => ({
+                                    doc_id: String(item.id),
+                                    store_id: storeId,
+                                    collection: col,
+                                    data: { ...item, _store: storeId, _updatedAt: now },
+                                    updated_at: now
+                                }));
+                                await sbUpsertBatch(rows);
+                            });
                         }
+                        await _pLimit(tasks, CONCURRENCY);
                     }
                     // Salva config da empresa
                     await LocalFirst.pushConfig();
@@ -12090,7 +12134,7 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                     LocalFirst._realtimePaused = false;
                 }
                 if (Array.isArray(state.prescriptions)) {
-                    state.prescriptions.forEach(p => { if (!p.id && p.clientId) p.id = 'PRESC-' + p.clientId; });
+                    state.prescriptions.forEach((p, idx) => { if (!p.id && p.clientId) p.id = 'PRESC-' + p.clientId + '-' + idx; });
                 }
                 // Sem escrita em IDB — cloud-only
                 if (!silent) {} // silencia toast
@@ -12365,71 +12409,114 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                         try {
                             const newData = JSON.parse(e.target.result);
 
-                            // 1. Carrega no state
-                            Object.assign(state, newData);
-
-                            // 2. Garante que todos os itens têm id e _store
-                            const storeId = window._currentStore || 'barueri';
-                            const now = new Date().toISOString();
-                            const colKeys = Object.keys(_COL_MAP);
-
                             if (!navigator.onLine) {
                                 Toast.show('⚠️ Sem conexão. Conecte-se ao Supabase para restaurar.', 'error', 5000);
                                 return;
                             }
 
-                            Toast.show('☁️ Enviando backup ao Supabase...', 'info', 3000);
+                            // 1. Carrega no state
+                            Object.assign(state, newData);
 
-                            let total = 0;
+                            const storeId = window._currentStore || 'barueri';
+                            const now = new Date().toISOString();
+                            const colKeys = Object.keys(_COL_MAP);
+                            const BATCH_SIZE = 100; // aumentado de 20 → 100
+                            const CONCURRENCY = 5;  // lotes em paralelo por coleção
 
-                            // 3. Grava cada coleção no Supabase (lotes de 20 — evita ERR_INSUFFICIENT_RESOURCES)
+                            // Garante IDs em prescriptions antes de filtrar
+                            if (Array.isArray(state.prescriptions)) {
+                                state.prescriptions.forEach((p, idx) => {
+                                    if (!p.id && p.clientId) p.id = 'PRESC-' + p.clientId + '-' + idx;
+                                });
+                            }
+
+                            // Conta total de itens para mostrar progresso
+                            let totalItens = colKeys.reduce((acc, k) => {
+                                return acc + ((state[k] || []).filter(i => i && i.id).length);
+                            }, 0);
+                            let enviados = 0;
+                            let erros = 0;
+
+                            const _toast = (msg, type = 'info', dur = 3000) => Toast.show(msg, type, dur);
+                            _toast(`☁️ Importando backup… 0/${totalItens} registros`, 'info', 60000);
+
+                            // Função auxiliar: envia uma coleção toda em paralelo
+                            const _uploadCollection = async (stateKey) => {
+                                const items = (state[stateKey] || []).filter(i => i && i.id);
+                                if (!items.length) return;
+                                const col = _COL_MAP[stateKey];
+
+                                // Divide em chunks de BATCH_SIZE
+                                const chunks = [];
+                                for (let i = 0; i < items.length; i += BATCH_SIZE) {
+                                    chunks.push(items.slice(i, i + BATCH_SIZE));
+                                }
+
+                                // Cria tarefas para _pLimit
+                                const tasks = chunks.map(chunk => async () => {
+                                    const rows = chunk.map(item => {
+                                        if (!item.updated_at) item.updated_at = now;
+                                        return {
+                                            doc_id: String(item.id),
+                                            store_id: storeId,
+                                            collection: col,
+                                            data: { ...item, _store: storeId, _updatedAt: now },
+                                            updated_at: now
+                                        };
+                                    });
+                                    try {
+                                        await sbUpsertBatch(rows);
+                                        enviados += chunk.length;
+                                    } catch (batchErr) {
+                                        erros += chunk.length;
+                                        console.error(`[importBackup] Batch ${col} falhou definitivamente:`, batchErr.message);
+                                    }
+                                    // Atualiza toast de progresso
+                                    const pct = Math.round(((enviados + erros) / totalItens) * 100);
+                                    Toast.show(`☁️ Importando… ${enviados}/${totalItens} (${pct}%)`, 'info', 60000);
+                                });
+
+                                await _pLimit(tasks, CONCURRENCY);
+                            };
+
+                            // 2. Pausa Realtime e envia todas as coleções
                             LocalFirst._pauseRealtime();
                             try {
                                 for (const stateKey of colKeys) {
-                                    const items = (state[stateKey] || []).filter(i => i && i.id);
-                                    if (!items.length) continue;
-                                    const col = _COL_MAP[stateKey];
-                                    for (let i = 0; i < items.length; i += 20) {
-                                        const chunk = items.slice(i, i + 20);
-                                        const rows = chunk.map(item => {
-                                            if (!item.updated_at) item.updated_at = now;
-                                            return {
-                                                doc_id: String(item.id),
-                                                store_id: storeId,
-                                                collection: col,
-                                                data: { ...item, _store: storeId, _updatedAt: now },
-                                                updated_at: now
-                                            };
-                                        });
-                                        await sbUpsertBatch(rows);
-                                        total += chunk.length;
-                                    }
+                                    await _uploadCollection(stateKey);
                                 }
                             } finally {
+                                // 3. Salva config + contas ANTES de retomar realtime
+                                try { await LocalFirst.pushConfig(); } catch(ce) { console.warn('[importBackup] pushConfig:', ce.message); }
+
+                                const contasBackup = Array.isArray(newData._contasManuais) ? newData._contasManuais
+                                    : Array.isArray(newData.contasFinanceiras)  ? newData.contasFinanceiras
+                                    : Array.isArray(newData._contasFinanceiras) ? newData._contasFinanceiras
+                                    : [];
+                                if (contasBackup.length > 0) {
+                                    try { await ContasManager.saveAll(contasBackup); } catch(ce) { console.warn('[importBackup] saveContas:', ce.message); }
+                                }
+
+                                // Retoma realtime APÓS config+contas salvas
                                 LocalFirst._resumeRealtime(storeId);
                             }
 
-                            // 4. Grava config da empresa
-                            await LocalFirst.pushConfig();
-
-                            // 5. Grava contas financeiras se existirem no backup
-                            const contasBackup = newData._contasManuais || newData.contasFinanceiras || newData._contasFinanceiras || [];
-                            if (Array.isArray(contasBackup) && contasBackup.length > 0) {
-                                await ContasManager.saveAll(contasBackup);
-                            }
-
-                            // 6. Atualiza UI
-                            Config.load();
-                            Utils.updatePixKey();
-                            this.updateSupplierSelect();
-                            this.updateCompanyDisplay();
+                            // 4. Atualiza UI
+                            try { Config.load(); } catch(e) {}
+                            try { Utils.updatePixKey(); } catch(e) {}
+                            try { this.updateSupplierSelect(); } catch(e) {}
+                            try { this.updateCompanyDisplay(); } catch(e) {}
                             try { Dashboard.update().catch(()=>{}); } catch(e) {}
                             try { Clients.renderTable(); } catch(e) {}
                             try { Products.renderTable(); } catch(e) {}
                             try { Sales.renderHistory(); } catch(e) {}
                             try { Expenses.renderTable(); Expenses.updateSummary(); } catch(e) {}
 
-                            Toast.show(`✅ Backup restaurado! ${total} registros gravados no Supabase.`, 'success', 5000);
+                            if (erros === 0) {
+                                Toast.show(`✅ Backup restaurado! ${enviados} registros gravados no Supabase.`, 'success', 6000);
+                            } else {
+                                Toast.show(`⚠️ Importação parcial: ${enviados} ok, ${erros} falharam. Verifique o console e tente novamente.`, 'warning', 8000);
+                            }
                         } catch (err) {
                             console.error('[importBackup]', err);
                             Toast.show('❌ Erro ao restaurar: ' + err.message, 'error');
