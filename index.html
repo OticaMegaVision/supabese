@@ -9205,6 +9205,8 @@ ALTER PUBLICATION supabase_realtime ADD TABLE otica_data;
             // ── Listeners Supabase Realtime por loja ───────────────────────
             _startListeners(storeId) {
                 this._stopListeners();
+                // ✅ FIX: Registra qual loja está ativa nos listeners
+                this._activeListenerStore = storeId;
                 // Pausa Realtime durante o fetch inicial para evitar race condition
                 // (eventos de outros dispositivos durante o fetch seriam perdidos ou duplicados)
                 this._realtimePaused = true;
@@ -9293,6 +9295,16 @@ ALTER PUBLICATION supabase_realtime ADD TABLE otica_data;
             },
 
             _handleRealtimeChange(payload, storeId) {
+                // ✅ FIX: Ignora eventos de loja diferente da loja ativa atual
+                if (storeId !== window._currentStore) {
+                    console.warn('[Supabase] Ignorando evento de loja diferente:', storeId, '!= ', window._currentStore);
+                    return;
+                }
+                // ✅ FIX: Ignora se os listeners foram trocados para outra loja
+                if (this._activeListenerStore && this._activeListenerStore !== window._currentStore) {
+                    console.warn('[Supabase] Listener obsoleto descartado para loja:', storeId);
+                    return;
+                }
                 const { eventType, new: newRow, old: oldRow } = payload;
                 const row = newRow || oldRow;
                 if (!row) return;
@@ -9340,8 +9352,14 @@ ALTER PUBLICATION supabase_realtime ADD TABLE otica_data;
 
             _stopListeners() {
                 const ch = this._listeners['_channel'];
-                if (ch) { try { supabase.removeChannel(ch); } catch(e) {} }
+                if (ch) {
+                    try { supabase.removeChannel(ch); } catch(e) {}
+                    // Aguarda um tick para garantir que o canal foi removido antes de criar novo
+                    this._listeners['_channel'] = null;
+                }
                 this._listeners = {};
+                // Marca que não há loja ativa nos listeners — evita processar eventos antigos
+                this._activeListenerStore = null;
             },
 
             _refreshUI(stateKey) {
@@ -12103,6 +12121,14 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                         state[key].forEach(item => { if (!item.updated_at) item.updated_at = now; });
                     }
                 });
+                // ✅ FIX: Salva localmente no IDB com chave isolada por loja ANTES de enviar ao Supabase
+                // Isso garante que ao trocar de loja, o cache local seja da loja correta
+                try {
+                    const localSnapshot = {};
+                    TABLES.forEach(k => { localSnapshot[k] = state[k]; });
+                    localSnapshot.company = state.company;
+                    await IDB.set(STORAGE_KEY(), JSON.stringify(localSnapshot));
+                } catch(e) { console.warn('[saveData] Erro ao salvar cache local:', e.message); }
                 if (!navigator.onLine) return;
                 try {
                     LocalFirst._realtimePaused = true;
@@ -23059,6 +23085,18 @@ const StoreManager = {
             LocalFirst._syncing = false;
             LocalFirst._pushingCount = 0;
             LocalFirst._dirtyKeys.clear();
+            // ✅ FIX: Limpa o cache em memória da loja anterior para evitar contaminação
+            // Remove todas as entradas de cache que pertencem à loja anterior
+            const prevStore = window._currentStore;
+            Object.keys(IDB._cache).forEach(k => {
+                if (k.includes('_' + prevStore) || k.endsWith('_' + prevStore)) {
+                    delete IDB._cache[k];
+                }
+            });
+            // Limpa também pendingUIKeys e timers do debounce
+            LocalFirst._pendingUIKeys.clear();
+            if (LocalFirst._dashTimer) { clearTimeout(LocalFirst._dashTimer); LocalFirst._dashTimer = null; }
+            if (LocalFirst._uiTimer)   { clearTimeout(LocalFirst._uiTimer);   LocalFirst._uiTimer = null; }
         } catch(e) {}
 
         // ── PASSO 4: Troca a loja ativa ──
