@@ -9446,6 +9446,9 @@ CREATE POLICY "otica_allow_all"
                 state._contasManuais = contas;
                 const hoje = new Date().toISOString().split('T')[0];
 
+                // ── Map de clientes por ID para lookup O(1) em vez de O(n) ──────
+                const clientsMapById = new Map((state.clients || []).map(c => [c.id, c]));
+
                 // ── Injeta parcelas de vendas em Contas a Receber ──────────────
                 const metodosAVista = ['pix', 'cash', 'debit', 'credit'];
                 const metodoLabel   = {pix:'PIX', cash:'Dinheiro', debit:'Débito', credit:'Crédito', installment:'Crediário'};
@@ -9457,7 +9460,7 @@ CREATE POLICY "otica_allow_all"
                     if (sale.status === 'cancelado') continue;
                     if (sale.paymentStatus === 'pago') continue;
 
-                    const client       = (state.clients || []).find(c => c.id === sale.clientId);
+                    const client       = clientsMapById.get(sale.clientId);
                     const nomeCliente  = client ? client.name : 'Cliente';
                     const det          = sale.paymentDetails || {};
                     const parcelas     = det.parcels || [];
@@ -9732,6 +9735,8 @@ CREATE POLICY "otica_allow_all"
                     el.innerHTML = '<p style="color:var(--gray);font-size:0.85rem;text-align:center;padding:0.75rem 0;">Nenhum lançamento</p>';
                     return;
                 }
+                // Map por nome para lookup O(1) no WhatsApp
+                const clientsByName = new Map((state.clients||[]).map(c => [c.name, c]));
                 // Sort: pendentes primeiro, vencidas em destaque
                 contas.sort((a,b)=>{
                     if(a.pago && !b.pago) return 1;
@@ -9751,7 +9756,7 @@ CREATE POLICY "otica_allow_all"
 
                     // WhatsApp cobrança — disponível para itens de venda com cliente
                     const hasWpp = c._readonly && c.parte && c.parte !== 'Cliente';
-                    const clientObj = (state.clients||[]).find(cl => cl.name === c.parte);
+                    const clientObj = clientsByName.get(c.parte);
                     const phone = clientObj?.whatsapp || clientObj?.phone || '';
                     const wppBtn = (hasWpp && phone && !c.pago) ? `<button class="btn btn-sm" style="background:rgba(37,211,102,0.15);color:#25d366;border:1px solid rgba(37,211,102,0.3);padding:4px 8px;font-size:0.75rem;" title="Cobrar via WhatsApp"
                         onclick="ContasManager.enviarCobrancaWhatsApp('${c.id}')"><i class="fab fa-whatsapp"></i></button>` : '';
@@ -9870,7 +9875,7 @@ CREATE POLICY "otica_allow_all"
                 document.body.appendChild(overlay);
                 overlay.querySelector('#_bxCancel').onclick = () => overlay.remove();
                 overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
-                overlay.querySelector('#_bxConfirm').onclick = async () => {
+                overlay.querySelector('#_bxConfirm').onclick = () => {
                     const paidVal = parseFloat(overlay.querySelector('#_bxVal').value) || 0;
                     const forma   = overlay.querySelector('#_bxForma').value;
                     const obs     = overlay.querySelector('#_bxObs').value.trim();
@@ -9882,12 +9887,14 @@ CREATE POLICY "otica_allow_all"
                         contas[idx2].paidValue = paidVal;
                         contas[idx2].formaPagamento = forma || '—';
                         if (obs) contas[idx2].obs = obs;
-                        await this.saveAll(contas);
-                        Toast.show('Baixa registrada! ✅', 'success');
+                        // Fecha o modal e mostra toast imediatamente — sem aguardar Supabase
                         overlay.remove();
-                        await this.renderAll();
-                        Dashboard.update().catch(()=>{});
+                        Toast.show('Baixa registrada! ✅', 'success');
                         this.gerarComprovante(id);
+                        // Salva e re-renderiza em background
+                        this.saveAll(contas).catch(()=>{});
+                        this.renderAll().catch(()=>{});
+                        Dashboard.update().catch(()=>{});
                     }
                 };
             },
@@ -9969,10 +9976,10 @@ CREATE POLICY "otica_allow_all"
                                 parc.paidValue = paidVal; parc.formaPagamento = forma;
                                 if (this.checkPaymentComplete(sale)) sale.paymentStatus = 'pago';
                                 sale.updated_at = new Date().toISOString();
-                                await App.saveData(true);
-                                if (window.LocalFirst) await LocalFirst.pushItem('sales', sale);
+                                // Salva apenas a venda modificada (não todas as tabelas)
+                                if (window.LocalFirst) LocalFirst.pushItem('sales', sale).catch(()=>{});
                                 Toast.show(`Parcela ${num} quitada! ✅`, 'success');
-                                await this.renderAll();
+                                this.renderAll().catch(()=>{});
                                 Dashboard.update().catch(()=>{});
                                 this.gerarComprovanteVenda(itemId, itemDescricao||`Parcela ${num}`, itemValor||parc.value||parc.valor, itemCliente, itemCategoria, itemVencimento, forma, obs);
                             }
@@ -9982,10 +9989,10 @@ CREATE POLICY "otica_allow_all"
                         // Fix: verifica quitação total após registrar retirada dual
                         if (ContasManager.checkPaymentComplete(sale)) sale.paymentStatus = 'pago';
                         sale.updated_at = new Date().toISOString();
-                        await App.saveData(true);
-                        if (window.LocalFirst) await LocalFirst.pushItem('sales', sale);
+                        // Salva apenas a venda modificada
+                        if (window.LocalFirst) LocalFirst.pushItem('sales', sale).catch(()=>{});
                         Toast.show('Retirada registrada! ✅', 'success');
-                        await this.renderAll();
+                        this.renderAll().catch(()=>{});
                         Dashboard.update().catch(()=>{});
                     }
                     return;
@@ -10007,10 +10014,10 @@ CREATE POLICY "otica_allow_all"
                                 sale.paymentStatus = 'pago';
                             }
                             sale.updated_at = new Date().toISOString();
-                            await App.saveData(true);
-                            if (window.LocalFirst) await LocalFirst.pushItem('sales', sale);
+                            // Salva apenas a venda modificada
+                            if (window.LocalFirst) LocalFirst.pushItem('sales', sale).catch(()=>{});
                             Toast.show(`Parcela ${num} quitada! ✅`, 'success');
-                            await this.renderAll();
+                            this.renderAll().catch(()=>{});
                             Dashboard.update().catch(()=>{});
                             this.gerarComprovanteVenda(itemId, itemDescricao||`Parcela ${num}`, itemValor||parc.value||parc.valor, itemCliente, itemCategoria, itemVencimento, forma, obs);
                         }
@@ -10028,19 +10035,19 @@ CREATE POLICY "otica_allow_all"
                         sale.paymentStatus = 'pago';
                     }
                     sale.updated_at = new Date().toISOString();
-                    await App.saveData(true);
-                    if (window.LocalFirst) await LocalFirst.pushItem('sales', sale);
+                    // Salva apenas a venda modificada
+                    if (window.LocalFirst) LocalFirst.pushItem('sales', sale).catch(()=>{});
                     Toast.show('Pagamento na retirada registrado! ✅', 'success');
-                    await this.renderAll();
+                    this.renderAll().catch(()=>{});
                     Dashboard.update().catch(()=>{});
                     this.gerarComprovanteVenda(itemId, itemDescricao||'Pagamento na Retirada', itemValor, itemCliente, itemCategoria, itemVencimento, forma, obs);
                 } else if (tipo === 'total') {
                     sale.paymentStatus = 'pago';
                     sale.updated_at = new Date().toISOString();
-                    await App.saveData(true);
-                    if (window.LocalFirst) await LocalFirst.pushItem('sales', sale);
+                    // Salva apenas a venda modificada
+                    if (window.LocalFirst) LocalFirst.pushItem('sales', sale).catch(()=>{});
                     Toast.show('Pagamento registrado! ✅', 'success');
-                    await this.renderAll();
+                    this.renderAll().catch(()=>{});
                     Dashboard.update().catch(()=>{});
                     this.gerarComprovanteVenda(itemId, itemDescricao||'Pagamento Total', itemValor||sale.total||0, itemCliente, itemCategoria, itemVencimento, forma, obs);
                 }
