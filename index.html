@@ -9180,9 +9180,18 @@ ALTER PUBLICATION supabase_realtime ADD TABLE otica_data;
             },
 
             _resumeRealtime(storeId) {
+                // ✅ FIX: Captura storeId no momento da chamada (não no setTimeout)
+                // Sem isso, se o usuário troca de loja antes do timeout disparar,
+                // o re-fetch carregaria dados da nova loja mas com o storeId antigo
                 const sid = storeId || window._currentStore || 'barueri';
                 // Re-fetch com delay para garantir que o DB processou os writes
                 setTimeout(() => {
+                    // ✅ FIX: Verifica novamente se a loja ainda é a mesma antes de executar
+                    if (sid !== window._currentStore) {
+                        this._realtimePaused = false;
+                        console.warn('[Supabase] _resumeRealtime cancelado — loja mudou:', sid, '->', window._currentStore);
+                        return;
+                    }
                     this._fetchAllData(sid).finally(() => {
                         this._realtimePaused = false;
                         console.log('[Supabase] Realtime retomado apos operacao em lote');
@@ -9205,8 +9214,6 @@ ALTER PUBLICATION supabase_realtime ADD TABLE otica_data;
             // ── Listeners Supabase Realtime por loja ───────────────────────
             _startListeners(storeId) {
                 this._stopListeners();
-                // ✅ FIX: Registra qual loja está ativa nos listeners
-                this._activeListenerStore = storeId;
                 // Pausa Realtime durante o fetch inicial para evitar race condition
                 // (eventos de outros dispositivos durante o fetch seriam perdidos ou duplicados)
                 this._realtimePaused = true;
@@ -9252,8 +9259,18 @@ ALTER PUBLICATION supabase_realtime ADD TABLE otica_data;
                         .select('*')
                         .eq('store_id', storeId);
                     if (error) throw error;
+
+                    // ✅ FIX CRÍTICO: Se a loja mudou enquanto o fetch estava em andamento,
+                    // ABORTA — não aplica dados de outra loja no state atual
+                    if (storeId !== window._currentStore) {
+                        console.warn('[Supabase] _fetchAllData ABORTADO — loja mudou durante fetch:', storeId, '->', window._currentStore);
+                        return;
+                    }
+
                     const byCol = {};
                     (data || []).forEach(row => {
+                        // ✅ FIX: Ignora qualquer linha cujo store_id não seja da loja solicitada
+                        if (row.store_id !== storeId) return;
                         if (!byCol[row.collection]) byCol[row.collection] = [];
                         byCol[row.collection].push({ ...row.data, _docId: row.doc_id });
                     });
@@ -9295,14 +9312,9 @@ ALTER PUBLICATION supabase_realtime ADD TABLE otica_data;
             },
 
             _handleRealtimeChange(payload, storeId) {
-                // ✅ FIX: Ignora eventos de loja diferente da loja ativa atual
+                // ✅ FIX CRÍTICO: Rejeita eventos de loja diferente da loja ativa
                 if (storeId !== window._currentStore) {
-                    console.warn('[Supabase] Ignorando evento de loja diferente:', storeId, '!= ', window._currentStore);
-                    return;
-                }
-                // ✅ FIX: Ignora se os listeners foram trocados para outra loja
-                if (this._activeListenerStore && this._activeListenerStore !== window._currentStore) {
-                    console.warn('[Supabase] Listener obsoleto descartado para loja:', storeId);
+                    console.warn('[Supabase] Evento Realtime IGNORADO — loja do evento:', storeId, '!= loja ativa:', window._currentStore);
                     return;
                 }
                 const { eventType, new: newRow, old: oldRow } = payload;
@@ -9354,12 +9366,13 @@ ALTER PUBLICATION supabase_realtime ADD TABLE otica_data;
                 const ch = this._listeners['_channel'];
                 if (ch) {
                     try { supabase.removeChannel(ch); } catch(e) {}
-                    // Aguarda um tick para garantir que o canal foi removido antes de criar novo
-                    this._listeners['_channel'] = null;
                 }
                 this._listeners = {};
-                // Marca que não há loja ativa nos listeners — evita processar eventos antigos
-                this._activeListenerStore = null;
+                // ✅ FIX: Cancela timers de reconexão pendentes para a loja anterior
+                if (this._reconnectTimer) {
+                    clearTimeout(this._reconnectTimer);
+                    this._reconnectTimer = null;
+                }
             },
 
             _refreshUI(stateKey) {
@@ -12121,14 +12134,6 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                         state[key].forEach(item => { if (!item.updated_at) item.updated_at = now; });
                     }
                 });
-                // ✅ FIX: Salva localmente no IDB com chave isolada por loja ANTES de enviar ao Supabase
-                // Isso garante que ao trocar de loja, o cache local seja da loja correta
-                try {
-                    const localSnapshot = {};
-                    TABLES.forEach(k => { localSnapshot[k] = state[k]; });
-                    localSnapshot.company = state.company;
-                    await IDB.set(STORAGE_KEY(), JSON.stringify(localSnapshot));
-                } catch(e) { console.warn('[saveData] Erro ao salvar cache local:', e.message); }
                 if (!navigator.onLine) return;
                 try {
                     LocalFirst._realtimePaused = true;
@@ -13999,9 +14004,10 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
 
                     // Sincroniza com Supabase em batch (pausando Realtime para evitar loop)
                     if (toSync.length > 0) {
+                        // ✅ FIX: Captura storeId ANTES do bloco async para não usar loja errada
+                        const storeId = window._currentStore || 'barueri';
                         LocalFirst._pauseRealtime();
                         try {
-                            const storeId = window._currentStore || 'barueri';
                             const now2 = new Date().toISOString();
                             const col = _COL_MAP['clients'] || 'clients';
                             for (let bi = 0; bi < toSync.length; bi += 20) {
@@ -14020,7 +14026,8 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                             console.warn('[Import] Falha sync batch:', e2.message);
                             Toast.show('Erro ao sincronizar: ' + e2.message, 'warning');
                         } finally {
-                            LocalFirst._resumeRealtime();
+                            // ✅ FIX: Passa storeId capturado — não window._currentStore que pode ter mudado
+                            LocalFirst._resumeRealtime(storeId);
                         }
                     }
                 };
@@ -22591,8 +22598,10 @@ const ImportadorMarketUP = {
             }
 
             // 3. Salvar tudo no Supabase em batch (com pausa de Realtime)
+            // ✅ FIX: Captura storeId ANTES do bloco async — garante que mesmo que o usuário
+            // troque de loja durante o import, os dados vão para a loja correta
+            const storeId3 = window._currentStore || 'barueri';
             try {
-                const storeId3 = window._currentStore || 'barueri';
                 const now3 = new Date().toISOString();
                 LocalFirst._pauseRealtime();
 
@@ -22623,7 +22632,8 @@ const ImportadorMarketUP = {
             } catch(saveErr) {
                 console.warn('[MarketUP] Erro ao salvar no Supabase:', saveErr.message);
             } finally {
-                LocalFirst._resumeRealtime();
+                // ✅ FIX: Passa storeId3 capturado — não window._currentStore que pode ter mudado
+                LocalFirst._resumeRealtime(storeId3);
             }
 
             // 4. Mostrar resultado
@@ -23085,18 +23095,16 @@ const StoreManager = {
             LocalFirst._syncing = false;
             LocalFirst._pushingCount = 0;
             LocalFirst._dirtyKeys.clear();
-            // ✅ FIX: Limpa o cache em memória da loja anterior para evitar contaminação
-            // Remove todas as entradas de cache que pertencem à loja anterior
+            // ✅ FIX CRÍTICO: Limpa cache em memória da loja anterior
+            // sem isso, contas e dados da loja A ficam no cache e aparecem na loja B
             const prevStore = window._currentStore;
             Object.keys(IDB._cache).forEach(k => {
-                if (k.includes('_' + prevStore) || k.endsWith('_' + prevStore)) {
-                    delete IDB._cache[k];
-                }
+                if (k.endsWith('_' + prevStore)) delete IDB._cache[k];
             });
-            // Limpa também pendingUIKeys e timers do debounce
-            LocalFirst._pendingUIKeys.clear();
+            // Cancela timers de debounce pendentes que poderiam renderizar dados da loja antiga
             if (LocalFirst._dashTimer) { clearTimeout(LocalFirst._dashTimer); LocalFirst._dashTimer = null; }
             if (LocalFirst._uiTimer)   { clearTimeout(LocalFirst._uiTimer);   LocalFirst._uiTimer = null; }
+            if (LocalFirst._pendingUIKeys) LocalFirst._pendingUIKeys.clear();
         } catch(e) {}
 
         // ── PASSO 4: Troca a loja ativa ──
