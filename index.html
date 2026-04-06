@@ -6751,7 +6751,17 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                     </form>
                 </div>
                 <div class="table-container">
-                    <input type="text" id="searchProduct" class="form-control" placeholder="🔍 Buscar produto..." onkeyup="Products.search()" style="margin-bottom: 1.5rem;">
+                    <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem;">
+                        <input type="text" id="searchProduct" class="form-control" placeholder="🔍 Buscar produto..." onkeyup="Products.search()" style="flex:1;min-width:180px;margin:0;">
+                        <span id="productsCountBadge" style="background:#ff6b00;color:#fff;border-radius:20px;padding:3px 12px;font-size:0.78rem;font-weight:700;white-space:nowrap;">0 produtos</span>
+                        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('importProductsFile').click()" title="Importar produtos via Excel/CSV">
+                            <i class="fas fa-upload"></i> Importar
+                        </button>
+                        <button class="btn btn-secondary btn-sm" onclick="Products.exportToExcel()" title="Exportar lista de produtos">
+                            <i class="fas fa-download"></i> Exportar
+                        </button>
+                        <input type="file" id="importProductsFile" accept=".xlsx,.csv" class="d-none" onchange="Products.importFromFile(event)">
+                    </div>
                     <table id="productsTable">
                         <thead>
                             <tr>
@@ -7539,9 +7549,8 @@ DROP POLICY IF EXISTS "otica_allow_all" ON otica_data;
 CREATE POLICY "otica_allow_all"
   ON otica_data FOR ALL USING (true) WITH CHECK (true);
 
--- 4. Realtime — habilita e garante REPLICA IDENTITY FULL (obrigatório para filtro por store_id)
-ALTER TABLE otica_data REPLICA IDENTITY FULL;
-ALTER PUBLICATION supabase_realtime ADD TABLE otica_data;
+-- 4. Realtime já está habilitado (foi configurado na criação)
+-- Se precisar reativar: ALTER PUBLICATION supabase_realtime ADD TABLE otica_data;
 
 -- ── ESTRUTURA DOS DADOS ─────────────────────────────────────────
 -- store_id = 'barueri' ou 'caucaia'  (as duas lojas ficam separadas)
@@ -9063,36 +9072,11 @@ ALTER PUBLICATION supabase_realtime ADD TABLE otica_data;
             const { error } = await supabase.from('otica_data').delete().eq('store_id', storeId);
             if (error) throw error;
         }
-        async function sbUpsertBatch(rows, retries = 4) {
-            for (let attempt = 1; attempt <= retries; attempt++) {
-                try {
-                    const { error } = await supabase
-                        .from('otica_data')
-                        .upsert(rows, { onConflict: 'doc_id,store_id,collection' });
-                    if (!error) return;
-                    // Erro do Supabase (não de rede) — lança imediatamente
-                    throw new Error(error.message || JSON.stringify(error));
-                } catch (e) {
-                    if (attempt === retries) throw e;
-                    const delay = 600 * attempt;
-                    console.warn(`[sbUpsertBatch] tentativa ${attempt}/${retries} falhou (${e.message}). Retentando em ${delay}ms...`);
-                    await new Promise(r => setTimeout(r, delay));
-                }
-            }
-        }
-
-        // Executa promises em paralelo com limite de concorrência
-        async function _pLimit(tasks, concurrency = 5) {
-            const results = [];
-            let idx = 0;
-            async function worker() {
-                while (idx < tasks.length) {
-                    const i = idx++;
-                    results[i] = await tasks[i]();
-                }
-            }
-            await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, worker));
-            return results;
+        async function sbUpsertBatch(rows) {
+            const { error } = await supabase
+                .from('otica_data')
+                .upsert(rows, { onConflict: 'doc_id,store_id,collection' });
+            if (error) throw error;
         }
 
         // ── IDB shim: mantém API legacy — agora usa apenas memória ─────────
@@ -9180,18 +9164,9 @@ ALTER PUBLICATION supabase_realtime ADD TABLE otica_data;
             },
 
             _resumeRealtime(storeId) {
-                // ✅ FIX: Captura storeId no momento da chamada (não no setTimeout)
-                // Sem isso, se o usuário troca de loja antes do timeout disparar,
-                // o re-fetch carregaria dados da nova loja mas com o storeId antigo
                 const sid = storeId || window._currentStore || 'barueri';
                 // Re-fetch com delay para garantir que o DB processou os writes
                 setTimeout(() => {
-                    // ✅ FIX: Verifica novamente se a loja ainda é a mesma antes de executar
-                    if (sid !== window._currentStore) {
-                        this._realtimePaused = false;
-                        console.warn('[Supabase] _resumeRealtime cancelado — loja mudou:', sid, '->', window._currentStore);
-                        return;
-                    }
                     this._fetchAllData(sid).finally(() => {
                         this._realtimePaused = false;
                         console.log('[Supabase] Realtime retomado apos operacao em lote');
@@ -9202,11 +9177,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE otica_data;
             // ── Boot: inicia listeners em tempo real ────────────────────────
             boot() {
                 this._startListeners(window._currentStore || 'barueri');
-                window.addEventListener('online',  () => {
-                    Toast.show('🌐 Conexão restaurada — reconectando Realtime...', 'info', 2500);
-                    // Reconecta automaticamente ao recuperar conexão
-                    setTimeout(() => this._startListeners(window._currentStore || 'barueri'), 1000);
-                });
+                window.addEventListener('online',  () => { Toast.show('🌐 Conexão restaurada', 'info', 2000); });
                 window.addEventListener('offline', () => { Toast.show('📵 Sem conexão — Supabase requer internet', 'warning', 3000); });
                 console.log('[Supabase] Boot completo — listeners ativos para loja:', window._currentStore);
             },
@@ -9217,7 +9188,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE otica_data;
                 // Pausa Realtime durante o fetch inicial para evitar race condition
                 // (eventos de outros dispositivos durante o fetch seriam perdidos ou duplicados)
                 this._realtimePaused = true;
-                const fetchPromise = this._fetchAllData(storeId).finally(() => {
+                this._fetchAllData(storeId).finally(() => {
                     this._realtimePaused = false;
                 });
                 const channel = supabase.channel('otica_store_' + storeId)
@@ -9232,24 +9203,15 @@ ALTER PUBLICATION supabase_realtime ADD TABLE otica_data;
                     .subscribe((status) => {
                         if (status === 'SUBSCRIBED') {
                             this._realtimeStatus = 'Ativo';
-                            this._reconnectAttempts = 0;
                             console.log('[Supabase] Realtime conectado para loja:', storeId);
-                        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+                        } else if (status === 'CHANNEL_ERROR') {
                             this._realtimeStatus = 'Erro';
-                            console.warn('[Supabase] Realtime status:', status, '— reconectando...');
-                            this._reconnectAttempts = (this._reconnectAttempts || 0) + 1;
-                            const delay = Math.min(2000 * this._reconnectAttempts, 30000);
-                            clearTimeout(this._reconnectTimer);
-                            this._reconnectTimer = setTimeout(() => {
-                                if (navigator.onLine) this._startListeners(storeId);
-                            }, delay);
                         }
                         this._updatePanel();
                     });
                 this._listeners['_channel'] = channel;
                 this._realtimeStatus = 'Conectando...';
                 window._lastSyncTime = new Date().toISOString();
-                return fetchPromise; // permite encadear .then() para saber quando o fetch concluiu
             },
 
             async _fetchAllData(storeId) {
@@ -9259,18 +9221,8 @@ ALTER PUBLICATION supabase_realtime ADD TABLE otica_data;
                         .select('*')
                         .eq('store_id', storeId);
                     if (error) throw error;
-
-                    // ✅ FIX CRÍTICO: Se a loja mudou enquanto o fetch estava em andamento,
-                    // ABORTA — não aplica dados de outra loja no state atual
-                    if (storeId !== window._currentStore) {
-                        console.warn('[Supabase] _fetchAllData ABORTADO — loja mudou durante fetch:', storeId, '->', window._currentStore);
-                        return;
-                    }
-
                     const byCol = {};
                     (data || []).forEach(row => {
-                        // ✅ FIX: Ignora qualquer linha cujo store_id não seja da loja solicitada
-                        if (row.store_id !== storeId) return;
                         if (!byCol[row.collection]) byCol[row.collection] = [];
                         byCol[row.collection].push({ ...row.data, _docId: row.doc_id });
                     });
@@ -9312,11 +9264,6 @@ ALTER PUBLICATION supabase_realtime ADD TABLE otica_data;
             },
 
             _handleRealtimeChange(payload, storeId) {
-                // ✅ FIX CRÍTICO: Rejeita eventos de loja diferente da loja ativa
-                if (storeId !== window._currentStore) {
-                    console.warn('[Supabase] Evento Realtime IGNORADO — loja do evento:', storeId, '!= loja ativa:', window._currentStore);
-                    return;
-                }
                 const { eventType, new: newRow, old: oldRow } = payload;
                 const row = newRow || oldRow;
                 if (!row) return;
@@ -9364,15 +9311,8 @@ ALTER PUBLICATION supabase_realtime ADD TABLE otica_data;
 
             _stopListeners() {
                 const ch = this._listeners['_channel'];
-                if (ch) {
-                    try { supabase.removeChannel(ch); } catch(e) {}
-                }
+                if (ch) { try { supabase.removeChannel(ch); } catch(e) {} }
                 this._listeners = {};
-                // ✅ FIX: Cancela timers de reconexão pendentes para a loja anterior
-                if (this._reconnectTimer) {
-                    clearTimeout(this._reconnectTimer);
-                    this._reconnectTimer = null;
-                }
             },
 
             _refreshUI(stateKey) {
@@ -12126,8 +12066,6 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                 const now = new Date().toISOString();
                 const storeId = window._currentStore || 'barueri';
                 const TABLES = ['clients','products','sales','expenses','prescriptions','suppliers','services'];
-                const BATCH_SIZE = 100;
-                const CONCURRENCY = 5;
                 // Normaliza timestamps
                 TABLES.forEach(key => {
                     if (Array.isArray(state[key])) {
@@ -12141,21 +12079,17 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                         const items = (state[key] || []).filter(i => i && i.id);
                         if (!items.length) continue;
                         const col = _COL_MAP[key] || key;
-                        const tasks = [];
-                        for (let i = 0; i < items.length; i += BATCH_SIZE) {
-                            const chunk = items.slice(i, i + BATCH_SIZE);
-                            tasks.push(async () => {
-                                const rows = chunk.map(item => ({
-                                    doc_id: String(item.id),
-                                    store_id: storeId,
-                                    collection: col,
-                                    data: { ...item, _store: storeId, _updatedAt: now },
-                                    updated_at: now
-                                }));
-                                await sbUpsertBatch(rows);
-                            });
+                        for (let i = 0; i < items.length; i += 20) {
+                            const chunk = items.slice(i, i + 20);
+                            const rows = chunk.map(item => ({
+                                doc_id: String(item.id),
+                                store_id: storeId,
+                                collection: col,
+                                data: { ...item, _store: storeId, _updatedAt: now },
+                                updated_at: now
+                            }));
+                            await sbUpsertBatch(rows);
                         }
-                        await _pLimit(tasks, CONCURRENCY);
                     }
                     // Salva config da empresa
                     await LocalFirst.pushConfig();
@@ -12165,7 +12099,7 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                     LocalFirst._realtimePaused = false;
                 }
                 if (Array.isArray(state.prescriptions)) {
-                    state.prescriptions.forEach((p, idx) => { if (!p.id && p.clientId) p.id = 'PRESC-' + p.clientId + '-' + idx; });
+                    state.prescriptions.forEach(p => { if (!p.id && p.clientId) p.id = 'PRESC-' + p.clientId; });
                 }
                 // Sem escrita em IDB — cloud-only
                 if (!silent) {} // silencia toast
@@ -12440,114 +12374,71 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                         try {
                             const newData = JSON.parse(e.target.result);
 
+                            // 1. Carrega no state
+                            Object.assign(state, newData);
+
+                            // 2. Garante que todos os itens têm id e _store
+                            const storeId = window._currentStore || 'barueri';
+                            const now = new Date().toISOString();
+                            const colKeys = Object.keys(_COL_MAP);
+
                             if (!navigator.onLine) {
                                 Toast.show('⚠️ Sem conexão. Conecte-se ao Supabase para restaurar.', 'error', 5000);
                                 return;
                             }
 
-                            // 1. Carrega no state
-                            Object.assign(state, newData);
+                            Toast.show('☁️ Enviando backup ao Supabase...', 'info', 3000);
 
-                            const storeId = window._currentStore || 'barueri';
-                            const now = new Date().toISOString();
-                            const colKeys = Object.keys(_COL_MAP);
-                            const BATCH_SIZE = 100; // aumentado de 20 → 100
-                            const CONCURRENCY = 5;  // lotes em paralelo por coleção
+                            let total = 0;
 
-                            // Garante IDs em prescriptions antes de filtrar
-                            if (Array.isArray(state.prescriptions)) {
-                                state.prescriptions.forEach((p, idx) => {
-                                    if (!p.id && p.clientId) p.id = 'PRESC-' + p.clientId + '-' + idx;
-                                });
-                            }
-
-                            // Conta total de itens para mostrar progresso
-                            let totalItens = colKeys.reduce((acc, k) => {
-                                return acc + ((state[k] || []).filter(i => i && i.id).length);
-                            }, 0);
-                            let enviados = 0;
-                            let erros = 0;
-
-                            const _toast = (msg, type = 'info', dur = 3000) => Toast.show(msg, type, dur);
-                            _toast(`☁️ Importando backup… 0/${totalItens} registros`, 'info', 60000);
-
-                            // Função auxiliar: envia uma coleção toda em paralelo
-                            const _uploadCollection = async (stateKey) => {
-                                const items = (state[stateKey] || []).filter(i => i && i.id);
-                                if (!items.length) return;
-                                const col = _COL_MAP[stateKey];
-
-                                // Divide em chunks de BATCH_SIZE
-                                const chunks = [];
-                                for (let i = 0; i < items.length; i += BATCH_SIZE) {
-                                    chunks.push(items.slice(i, i + BATCH_SIZE));
-                                }
-
-                                // Cria tarefas para _pLimit
-                                const tasks = chunks.map(chunk => async () => {
-                                    const rows = chunk.map(item => {
-                                        if (!item.updated_at) item.updated_at = now;
-                                        return {
-                                            doc_id: String(item.id),
-                                            store_id: storeId,
-                                            collection: col,
-                                            data: { ...item, _store: storeId, _updatedAt: now },
-                                            updated_at: now
-                                        };
-                                    });
-                                    try {
-                                        await sbUpsertBatch(rows);
-                                        enviados += chunk.length;
-                                    } catch (batchErr) {
-                                        erros += chunk.length;
-                                        console.error(`[importBackup] Batch ${col} falhou definitivamente:`, batchErr.message);
-                                    }
-                                    // Atualiza toast de progresso
-                                    const pct = Math.round(((enviados + erros) / totalItens) * 100);
-                                    Toast.show(`☁️ Importando… ${enviados}/${totalItens} (${pct}%)`, 'info', 60000);
-                                });
-
-                                await _pLimit(tasks, CONCURRENCY);
-                            };
-
-                            // 2. Pausa Realtime e envia todas as coleções
+                            // 3. Grava cada coleção no Supabase (lotes de 20 — evita ERR_INSUFFICIENT_RESOURCES)
                             LocalFirst._pauseRealtime();
                             try {
                                 for (const stateKey of colKeys) {
-                                    await _uploadCollection(stateKey);
+                                    const items = (state[stateKey] || []).filter(i => i && i.id);
+                                    if (!items.length) continue;
+                                    const col = _COL_MAP[stateKey];
+                                    for (let i = 0; i < items.length; i += 20) {
+                                        const chunk = items.slice(i, i + 20);
+                                        const rows = chunk.map(item => {
+                                            if (!item.updated_at) item.updated_at = now;
+                                            return {
+                                                doc_id: String(item.id),
+                                                store_id: storeId,
+                                                collection: col,
+                                                data: { ...item, _store: storeId, _updatedAt: now },
+                                                updated_at: now
+                                            };
+                                        });
+                                        await sbUpsertBatch(rows);
+                                        total += chunk.length;
+                                    }
                                 }
                             } finally {
-                                // 3. Salva config + contas ANTES de retomar realtime
-                                try { await LocalFirst.pushConfig(); } catch(ce) { console.warn('[importBackup] pushConfig:', ce.message); }
-
-                                const contasBackup = Array.isArray(newData._contasManuais) ? newData._contasManuais
-                                    : Array.isArray(newData.contasFinanceiras)  ? newData.contasFinanceiras
-                                    : Array.isArray(newData._contasFinanceiras) ? newData._contasFinanceiras
-                                    : [];
-                                if (contasBackup.length > 0) {
-                                    try { await ContasManager.saveAll(contasBackup); } catch(ce) { console.warn('[importBackup] saveContas:', ce.message); }
-                                }
-
-                                // Retoma realtime APÓS config+contas salvas
                                 LocalFirst._resumeRealtime(storeId);
                             }
 
-                            // 4. Atualiza UI
-                            try { Config.load(); } catch(e) {}
-                            try { Utils.updatePixKey(); } catch(e) {}
-                            try { this.updateSupplierSelect(); } catch(e) {}
-                            try { this.updateCompanyDisplay(); } catch(e) {}
+                            // 4. Grava config da empresa
+                            await LocalFirst.pushConfig();
+
+                            // 5. Grava contas financeiras se existirem no backup
+                            const contasBackup = newData._contasManuais || newData.contasFinanceiras || newData._contasFinanceiras || [];
+                            if (Array.isArray(contasBackup) && contasBackup.length > 0) {
+                                await ContasManager.saveAll(contasBackup);
+                            }
+
+                            // 6. Atualiza UI
+                            Config.load();
+                            Utils.updatePixKey();
+                            this.updateSupplierSelect();
+                            this.updateCompanyDisplay();
                             try { Dashboard.update().catch(()=>{}); } catch(e) {}
                             try { Clients.renderTable(); } catch(e) {}
                             try { Products.renderTable(); } catch(e) {}
                             try { Sales.renderHistory(); } catch(e) {}
                             try { Expenses.renderTable(); Expenses.updateSummary(); } catch(e) {}
 
-                            if (erros === 0) {
-                                Toast.show(`✅ Backup restaurado! ${enviados} registros gravados no Supabase.`, 'success', 6000);
-                            } else {
-                                Toast.show(`⚠️ Importação parcial: ${enviados} ok, ${erros} falharam. Verifique o console e tente novamente.`, 'warning', 8000);
-                            }
+                            Toast.show(`✅ Backup restaurado! ${total} registros gravados no Supabase.`, 'success', 5000);
                         } catch (err) {
                             console.error('[importBackup]', err);
                             Toast.show('❌ Erro ao restaurar: ' + err.message, 'error');
@@ -14004,10 +13895,9 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
 
                     // Sincroniza com Supabase em batch (pausando Realtime para evitar loop)
                     if (toSync.length > 0) {
-                        // ✅ FIX: Captura storeId ANTES do bloco async para não usar loja errada
-                        const storeId = window._currentStore || 'barueri';
                         LocalFirst._pauseRealtime();
                         try {
+                            const storeId = window._currentStore || 'barueri';
                             const now2 = new Date().toISOString();
                             const col = _COL_MAP['clients'] || 'clients';
                             for (let bi = 0; bi < toSync.length; bi += 20) {
@@ -14026,8 +13916,7 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                             console.warn('[Import] Falha sync batch:', e2.message);
                             Toast.show('Erro ao sincronizar: ' + e2.message, 'warning');
                         } finally {
-                            // ✅ FIX: Passa storeId capturado — não window._currentStore que pode ter mudado
-                            LocalFirst._resumeRealtime(storeId);
+                            LocalFirst._resumeRealtime();
                         }
                     }
                 };
@@ -14078,44 +13967,159 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
             renderTable() {
                 const tbody = document.querySelector('#productsTable tbody');
                 if (!tbody) return;
-                tbody.innerHTML = '';
-                
-                state.products.forEach(p => {
+                // Filtra por busca
+                const term = (document.getElementById('searchProduct')?.value || '').toLowerCase().trim();
+                const list = term
+                    ? (state.products || []).filter(p =>
+                        (p.name||'').toLowerCase().includes(term) ||
+                        (p.code||'').toLowerCase().includes(term) ||
+                        (p.category||'').toLowerCase().includes(term))
+                    : (state.products || []);
+                // Atualiza badge de contagem
+                const badge = document.getElementById('productsCountBadge');
+                if (badge) badge.textContent = list.length + ' produto' + (list.length !== 1 ? 's' : '');
+                // Renderiza com DocumentFragment — suporta 2700+ produtos sem travar
+                const PAGE = 200; // renderiza os primeiros 200, busca mostra todos filtrados
+                const toRender = list.slice(0, term ? list.length : PAGE);
+                const frag = document.createDocumentFragment();
+                toRender.forEach(p => {
                     const status = p.qty === 0 ? 'danger' : (p.qty <= (p.minQty||5) ? 'warning' : 'success');
                     const statusText = p.qty === 0 ? 'Esgotado' : (p.qty <= (p.minQty||5) ? 'Baixo' : 'Normal');
-                    const imgCell = p.image
-                        ? `<button class="prod-thumb-btn" onclick="ProdView.open('${p.id}')" title="Ver produto">
-                               <img src="${p.image}" alt="${Utils.sanitizeHTML(p.name)}">
-                           </button>`
-                        : `<button class="prod-thumb-btn prod-thumb-empty" onclick="ProdView.open('${p.id}')" title="Ver produto">
-                               <i class="fas fa-box"></i>
-                           </button>`;
-                    tbody.innerHTML += `<tr>
-                        <td style="font-family:monospace;font-size:.82rem;font-weight:700;">${p.code}</td>
-                        <td style="text-align:center;">${imgCell}</td>
-                        <td>
-                            <span style="font-weight:600;cursor:pointer;transition:color .15s;"
-                                onclick="ProdView.open('${p.id}')"
-                                onmouseenter="this.style.color='#ff6b00'"
-                                onmouseleave="this.style.color=''"
-                                title="Visualizar produto">
-                                ${Utils.sanitizeHTML(p.name)}
-                            </span>
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td style="font-family:monospace;font-size:.82rem;font-weight:700;">${Utils.sanitizeHTML(p.code||'')}</td>
+                        <td style="text-align:center;">
+                            ${p.image
+                                ? `<button class="prod-thumb-btn" onclick="ProdView.open('${p.id}')" title="Ver produto"><img src="${p.image}" alt="${Utils.sanitizeHTML(p.name)}"></button>`
+                                : `<button class="prod-thumb-btn prod-thumb-empty" onclick="ProdView.open('${p.id}')" title="Ver produto"><i class="fas fa-box"></i></button>`}
                         </td>
-                        <td>${p.category}</td>
+                        <td><span style="font-weight:600;cursor:pointer;" onclick="ProdView.open('${p.id}')" title="Visualizar produto">${Utils.sanitizeHTML(p.name)}</span></td>
+                        <td>${Utils.sanitizeHTML(p.category||'')}</td>
                         <td>${Utils.formatCurrency(p.costPrice || 0)}</td>
                         <td style="font-weight:700;color:#ff6b00;">${Utils.formatCurrency(p.price)}</td>
                         <td>${p.qty}</td>
                         <td><span class="badge badge-${status}">${statusText}</span></td>
                         <td class="action-buttons">
-                            <button class="btn-icon btn-view" onclick="ProdView.open('${p.id}')" title="Visualizar">
-                                <i class="fas fa-eye"></i>
-                            </button>
+                            <button class="btn-icon btn-view" onclick="ProdView.open('${p.id}')" title="Visualizar"><i class="fas fa-eye"></i></button>
                             <button class="btn-icon btn-edit" onclick="Products.edit('${p.id}')" title="Editar"><i class="fas fa-edit"></i></button>
                             <button class="btn-icon btn-delete" onclick="Products.delete('${p.id}')" title="Excluir"><i class="fas fa-trash"></i></button>
-                        </td>
-                    </tr>`;
+                        </td>`;
+                    frag.appendChild(tr);
                 });
+                tbody.innerHTML = '';
+                tbody.appendChild(frag);
+                if (!term && list.length > PAGE) {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `<td colspan="9" style="text-align:center;color:#888;padding:0.75rem;font-size:0.82rem;">
+                        Mostrando ${PAGE} de ${list.length} produtos. Use a busca para encontrar produtos específicos.
+                    </td>`;
+                    tbody.appendChild(tr);
+                }
+            },
+
+            // ── Importar produtos via Excel/CSV ──────────────────────────────────
+            importFromFile(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+                const isExcel = /\.(xlsx|xls)$/i.test(file.name);
+                const self = this;
+                const processRows = async (rows) => {
+                    if (rows.length < 2) { Toast.show('Arquivo inválido ou sem dados', 'error'); return; }
+                    // Cabeçalho esperado: Código | Categoria | Nome | Custo | Preço | Estoque | EstoqueMin
+                    let imported = 0, skipped = 0, errors = 0;
+                    const toSync = [];
+                    const existingCodes = new Set((state.products||[]).map(p=>(p.code||'').trim().toLowerCase()));
+                    for (let i = 1; i < rows.length; i++) {
+                        const r = rows[i].map(f => String(f||'').trim());
+                        if (r.every(f => !f)) continue;
+                        const name = r[2] || r[1] || '';
+                        if (!name) { errors++; continue; }
+                        const code = r[0] || '';
+                        if (code && existingCodes.has(code.toLowerCase())) { skipped++; continue; }
+                        const prod = {
+                            id: 'PROD-' + Date.now() + '-' + Math.random().toString(36).slice(2,6),
+                            code,
+                            category: r[1] || 'armacoes',
+                            name,
+                            costPrice: parseFloat((r[3]||'0').replace(/[^0-9.,]/g,'').replace(',','.')) || 0,
+                            price:     parseFloat((r[4]||'0').replace(/[^0-9.,]/g,'').replace(',','.')) || 0,
+                            qty:       parseInt(r[5]) || 0,
+                            minQty:    parseInt(r[6]) || 5,
+                            updated_at: new Date().toISOString()
+                        };
+                        if (prod.price <= 0) prod.price = prod.costPrice * 1.3 || 0;
+                        state.products.push(prod);
+                        existingCodes.add((code||prod.id).toLowerCase());
+                        toSync.push(prod);
+                        imported++;
+                    }
+                    self.renderTable();
+                    const msg = [
+                        imported > 0 ? imported + ' importado(s)' : '',
+                        skipped  > 0 ? skipped  + ' duplicado(s)' : '',
+                        errors   > 0 ? errors   + ' erro(s)' : ''
+                    ].filter(Boolean).join(' · ');
+                    Toast.show(msg || 'Nenhum produto importado', imported > 0 ? 'success' : 'warning');
+                    // Sincroniza com Supabase em batch
+                    if (toSync.length > 0) {
+                        LocalFirst._pauseRealtime();
+                        try {
+                            const storeId = window._currentStore || 'barueri';
+                            const now = new Date().toISOString();
+                            for (let bi = 0; bi < toSync.length; bi += 20) {
+                                const chunk = toSync.slice(bi, bi + 20);
+                                await sbUpsertBatch(chunk.map(item => ({
+                                    doc_id: String(item.id), store_id: storeId,
+                                    collection: 'products',
+                                    data: { ...item, _store: storeId, _updatedAt: now },
+                                    updated_at: now
+                                })));
+                            }
+                            Toast.show(toSync.length + ' produto(s) sincronizado(s) com a nuvem ✅', 'success', 3000);
+                        } catch(e2) {
+                            Toast.show('Erro ao sincronizar: ' + e2.message, 'warning');
+                        } finally {
+                            LocalFirst._resumeRealtime();
+                        }
+                    }
+                };
+                if (isExcel) {
+                    const reader = new FileReader();
+                    reader.onload = async (e) => {
+                        try {
+                            const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+                            const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1, defval:'' });
+                            await processRows(rows);
+                        } catch(err) { Toast.show('Erro ao ler Excel: ' + err.message, 'error'); }
+                    };
+                    reader.readAsArrayBuffer(file);
+                } else {
+                    const reader = new FileReader();
+                    reader.onload = async (e) => {
+                        const lines = (e.target.result.charCodeAt(0) === 0xFEFF ? e.target.result.slice(1) : e.target.result)
+                            .split('\n').filter(l => l.trim());
+                        await processRows(lines.map(l => l.split(';').map(f => f.trim().replace(/^"|"$/g,''))));
+                    };
+                    reader.readAsText(file);
+                }
+                event.target.value = '';
+            },
+
+            // ── Exportar produtos para Excel ─────────────────────────────────────
+            exportToExcel() {
+                if (!state.products.length) { Toast.show('Nenhum produto para exportar', 'warning'); return; }
+                const headers = ['Código','Categoria','Nome','Custo','Preço','Estoque','EstoqueMin'];
+                const rows = state.products.map(p => [
+                    p.code||'', p.category||'', p.name||'',
+                    (p.costPrice||0).toFixed(2), (p.price||0).toFixed(2),
+                    p.qty||0, p.minQty||5
+                ]);
+                const wb = XLSX.utils.book_new();
+                const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+                ws['!cols'] = headers.map((_,i) => ({ wch: Math.min(Math.max(...rows.map(r=>String(r[i]||'').length), headers[i].length) + 2, 40) }));
+                XLSX.utils.book_append_sheet(wb, ws, 'Produtos');
+                XLSX.writeFile(wb, 'produtos_' + new Date().toISOString().slice(0,10) + '.xlsx');
+                Toast.show('Produtos exportados com sucesso!');
             },
 
             uploadImage(event) {
@@ -14220,11 +14224,9 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
             },
 
             search() {
-                const term = document.getElementById('searchProduct').value.toLowerCase();
-                document.querySelectorAll('#productsTable tbody tr').forEach(row => {
-                    row.style.display = row.innerText.toLowerCase().includes(term) ? '' : 'none';
-                });
-            }
+                // Chama renderTable que já integra busca + DocumentFragment para 2700+ produtos
+                this.renderTable();
+            },
         };
 
         // ==================== SERVIÇOS ====================
@@ -22598,10 +22600,8 @@ const ImportadorMarketUP = {
             }
 
             // 3. Salvar tudo no Supabase em batch (com pausa de Realtime)
-            // ✅ FIX: Captura storeId ANTES do bloco async — garante que mesmo que o usuário
-            // troque de loja durante o import, os dados vão para a loja correta
-            const storeId3 = window._currentStore || 'barueri';
             try {
+                const storeId3 = window._currentStore || 'barueri';
                 const now3 = new Date().toISOString();
                 LocalFirst._pauseRealtime();
 
@@ -22632,8 +22632,7 @@ const ImportadorMarketUP = {
             } catch(saveErr) {
                 console.warn('[MarketUP] Erro ao salvar no Supabase:', saveErr.message);
             } finally {
-                // ✅ FIX: Passa storeId3 capturado — não window._currentStore que pode ter mudado
-                LocalFirst._resumeRealtime(storeId3);
+                LocalFirst._resumeRealtime();
             }
 
             // 4. Mostrar resultado
@@ -22737,6 +22736,19 @@ const AuthSystem = {
             ];
             await this._saveUsers(users);
             console.log('[AuthSystem] Usuários padrão criados no Firebase');
+        } else {
+            // Garante que o usuário admin sempre existe e está ativo
+            const adminExists = users.find(u => u.username.toLowerCase() === 'admin');
+            if (!adminExists) {
+                const adminHash = await this._hash('admin123');
+                users.push({ username: 'admin', fullName: 'Administrador', passwordHash: adminHash, stores: ['barueri','caucaia'], profile: 'admin', status: 'active' });
+                await this._saveUsers(users);
+                console.log('[AuthSystem] Usuário admin recriado (não estava na lista do Supabase)');
+            } else if (adminExists.status !== 'active') {
+                adminExists.status = 'active';
+                await this._saveUsers(users);
+                console.log('[AuthSystem] Usuário admin reativado');
+            }
         }
         return users;
     },
@@ -23082,110 +23094,106 @@ const StoreManager = {
         if (lojaId === window._currentStore) { this.closeModal(); return; }
 
         const loja = this._lojas[lojaId];
-
-        // ── PASSO 1: Feedback visual IMEDIATO — fecha modal sem nenhum await antes ──
         this.closeModal();
 
-        // ── PASSO 2: Salva loja atual em background (não bloqueia a troca) ──
-        App.saveData(true).catch(() => {});
+        // 1. Para Realtime da loja anterior imediatamente
+        try { LocalFirst._stopListeners(); } catch(e) {}
+        LocalFirst._realtimePaused = true;
 
-        // ── PASSO 3: Cancela sync pendente da loja anterior ──
-        try {
-            if (LocalFirst._syncTimer) { clearTimeout(LocalFirst._syncTimer); LocalFirst._syncTimer = null; }
-            LocalFirst._syncing = false;
-            LocalFirst._pushingCount = 0;
-            LocalFirst._dirtyKeys.clear();
-            // ✅ FIX CRÍTICO: Limpa cache em memória da loja anterior
-            // sem isso, contas e dados da loja A ficam no cache e aparecem na loja B
-            const prevStore = window._currentStore;
-            Object.keys(IDB._cache).forEach(k => {
-                if (k.endsWith('_' + prevStore)) delete IDB._cache[k];
-            });
-            // Cancela timers de debounce pendentes que poderiam renderizar dados da loja antiga
-            if (LocalFirst._dashTimer) { clearTimeout(LocalFirst._dashTimer); LocalFirst._dashTimer = null; }
-            if (LocalFirst._uiTimer)   { clearTimeout(LocalFirst._uiTimer);   LocalFirst._uiTimer = null; }
-            if (LocalFirst._pendingUIKeys) LocalFirst._pendingUIKeys.clear();
-        } catch(e) {}
-
-        // ── PASSO 4: Troca a loja ativa ──
+        // 2. Troca loja e salva preferência (sem await — não bloqueia UI)
         window._currentStore = lojaId;
-        IDB.set(this._STORE_PREF_KEY, lojaId).catch(() => {});
+        IDB.set(this._STORE_PREF_KEY, lojaId).catch(()=>{});
 
-        // ── PASSO 5: Reseta state para defaults limpos da nova loja ──
-        const defaultState = {
-            company: { name: 'OticaVision Pro', legalName: '', cnpj: '', ie: '', phone: '',
-                whatsapp: '', email: '', website: '', cep: '', address: '', number: '', complement: '',
-                neighborhood: '', city: '', state: '', primaryColor: '#ff6b00', secondaryColor: '#ffcc00',
-                creditTax: 2.5, warrantyDays: 90, commission: 5, deliveryFee: 0, nfSeries: '001',
-                paymentMethods: { pix:true, cash:true, debit:true, credit:true, installment:true },
-                pix: '', lateFee: 2, dailyInterest: 0.033, logo: null, lojaAtual: lojaId },
-            clients: [], products: [], services: [], suppliers: [], sales: [], expenses: [],
-            prescriptions: [], crmContatos: [], crmTarefas: [], crmNps: [],
-            currentSale: { number:'', date:'', unit: lojaId, seller:'', deliveryForecast:'',
-                clientId:null, items:[], subtotal:0, discount:0, addition:0, total:0,
-                paymentMethod:'installment', paymentDetails:null, observations:'', status:'orcamento', statusHistory:[] },
-            editingId: null, editingSaleId: null, osModelo: 'semfundo',
-            lastOsCounter: {}, lastOsYear: new Date().getFullYear(),
-            notificacoes: { lowStock:true, outOfStock:true, osReady:true, osDelay:true, osDelayDays:7,
-                paymentDue:true, paymentOverdue:true, whatsapp:false, whatsappNumber:'' },
-            users: [{ username:'admin', fullName:'Administrador', profile:'admin', status:'active', lastAccess:'Nunca' }],
-            backupConfig: { autoEnabled:false, hour:3, keepDays:7, lastAutoBackup:null, nextAutoBackup:null },
-            wppMensagens: state.wppMensagens
-        };
-        Object.keys(defaultState).forEach(k => { state[k] = defaultState[k]; });
+        // 3. Invalida cache de contas para a nova loja
+        IDB._cache['contas_financeiras_' + lojaId] = null;
 
-        // ── PASSO 6: Carrega dados locais do IndexedDB e renderiza IMEDIATAMENTE ──
-        // (online ou offline — sempre mostra dados locais sem esperar o Supabase)
-        let savedLocal = null;
-        try { savedLocal = await IDB.get(STORAGE_KEY()); } catch(e) {}
-        if (savedLocal) {
-            try {
-                const parsed = JSON.parse(savedLocal);
-                Object.keys(parsed).forEach(key => {
-                    if (key in state) {
-                        if (typeof parsed[key] === 'object' && parsed[key] !== null && !Array.isArray(parsed[key])) {
-                            state[key] = Object.assign({}, state[key], parsed[key]);
-                        } else {
-                            state[key] = parsed[key];
-                        }
-                    }
-                });
-            } catch(e) { console.error('[StoreManager] Erro ao carregar loja local:', e); }
-        }
+        // 4. Reseta state imediatamente (UI fica em branco por < 1s)
+        const keepMsgs = state.wppMensagens;
+        Object.assign(state, {
+            company: { name: loja.fullLabel, primaryColor:'#ff6b00', secondaryColor:'#ffcc00',
+                paymentMethods:{pix:true,cash:true,debit:true,credit:true,installment:true},
+                lateFee:2, dailyInterest:0.033, logo:null, lojaAtual:lojaId },
+            clients:[], products:[], services:[], suppliers:[], sales:[], expenses:[],
+            prescriptions:[], crmContatos:[], crmTarefas:[], crmNps:[],
+            editingId:null, editingSaleId:null, lastOsCounter:{},
+            wppMensagens: keepMsgs
+        });
 
-        // Renderiza com dados locais — interface responde instantaneamente
+        // 5. Atualiza badge de loja e fecha modal imediatamente
         this._updateUI();
-        App.updateCompanyDisplay();
-        try { Config.load(); } catch(e) {}
-        Dashboard.update().catch(() => {});
-        try { Clients.renderTable(); } catch(e) {}
-        try { Products.renderTable(); } catch(e) {}
-        try { Sales.renderHistory(); } catch(e) {}
-        try { Expenses.renderTable(); Expenses.updateSummary(); } catch(e) {}
-        Utils.updatePixKey();
+        Toast.show('⏳ ' + loja.fullLabel + ' — carregando...', 'info', 1500);
 
-        // ── PASSO 7: Sincroniza com Supabase em BACKGROUND via _startListeners ──
-        // _startListeners chama _fetchAllData internamente e atualiza a UI via _scheduleUIRefresh
-        // quando o fetch concluir — sem bloquear a interface
-        if (!navigator.onLine) {
-            Toast.show('⚠️ Offline — exibindo dados locais de ' + loja.fullLabel, 'warning', 3000);
-            return;
-        }
+        // 6. Busca dados da nova loja do Supabase diretamente (sem passar por _startListeners)
+        if (navigator.onLine) {
+            try {
+                const { data, error } = await supabase
+                    .from('otica_data')
+                    .select('*')
+                    .eq('store_id', lojaId);
+                if (error) throw error;
 
-        Toast.show('🏪 ' + loja.fullLabel + ' — sincronizando...', 'info', 5000);
-        try {
-            LocalFirst._startListeners(lojaId)
-                .then(() => {
-                    Toast.show('✅ ' + loja.fullLabel + ' — sincronizado!', 'success', 2500);
-                })
-                .catch((e) => {
-                    console.warn('[StoreManager] Fetch falhou:', e);
-                    Toast.show('⚠️ Erro ao sincronizar — dados locais exibidos', 'warning', 3000);
+                // Popula state com os dados recebidos
+                const byCol = {};
+                (data || []).forEach(row => {
+                    if (!byCol[row.collection]) byCol[row.collection] = [];
+                    byCol[row.collection].push({ ...row.data, _docId: row.doc_id });
                 });
-        } catch(e) {
-            console.warn('[StoreManager] Erro ao iniciar listeners:', e.message);
-            Toast.show('⚠️ Erro ao conectar — exibindo dados locais', 'warning', 2500);
+                const colMap = { clients:'clients', products:'products', sales:'sales',
+                    expenses:'expenses', prescriptions:'prescriptions',
+                    suppliers:'suppliers', services:'services' };
+                Object.keys(colMap).forEach(k => { if (byCol[colMap[k]]) state[k] = byCol[colMap[k]]; });
+
+                // Config da empresa
+                const cfgRows = byCol['config'] || [];
+                const emp = cfgRows.find(d => d._docId === 'empresa');
+                if (emp) {
+                    if (emp.company)       Object.assign(state.company, emp.company);
+                    if (emp.notificacoes)  Object.assign(state.notificacoes || {}, emp.notificacoes);
+                    if (emp.backupConfig)  Object.assign(state.backupConfig || {}, emp.backupConfig);
+                    if (emp.lastOsCounter) state.lastOsCounter = { ...state.lastOsCounter, ...emp.lastOsCounter };
+                    if (state.company.primaryColor)   document.documentElement.style.setProperty('--primary', state.company.primaryColor);
+                    if (state.company.secondaryColor) document.documentElement.style.setProperty('--secondary', state.company.secondaryColor);
+                }
+                // Contas financeiras
+                const contas = cfgRows.find(d => d._docId === 'contas_financeiras');
+                IDB._cache['contas_financeiras_' + lojaId] = JSON.stringify(contas?.items || []);
+
+                // Atualiza UI completa
+                App.updateCompanyDisplay();
+                try { Config.load(); } catch(e) {}
+                Utils.updatePixKey();
+                try { Clients.renderTable(); } catch(e) {}
+                try { Products.renderTable(); } catch(e) {}
+                try { Sales.renderHistory(); } catch(e) {}
+                try { Expenses.renderTable?.(); Expenses.updateSummary?.(); } catch(e) {}
+                Dashboard.update().catch(()=>{});
+
+                Toast.show('✅ ' + loja.fullLabel + ' carregada!', 'success', 2000);
+            } catch(e) {
+                console.warn('[StoreManager] Erro ao carregar loja:', e.message);
+                Toast.show('⚠️ Erro ao carregar dados — tente novamente', 'warning', 3000);
+            }
+        } else {
+            Toast.show('⚠️ Sem conexão — dados locais apenas', 'warning', 2500);
         }
+
+        // 7. Inicia Realtime para a nova loja (em background, sem bloquear)
+        try {
+            LocalFirst._realtimePaused = false;
+            // Assina canal da nova loja sem fazer novo fetch (já temos os dados)
+            LocalFirst._stopListeners();
+            const channel = supabase.channel('otica_store_' + lojaId)
+                .on('postgres_changes', {
+                    event: '*', schema: 'public', table: 'otica_data',
+                    filter: 'store_id=eq.' + lojaId
+                }, (payload) => {
+                    if (LocalFirst._realtimePaused) return;
+                    LocalFirst._handleRealtimeChange(payload, lojaId);
+                })
+                .subscribe();
+            LocalFirst._listeners['_channel'] = channel;
+            LocalFirst._realtimeStatus = 'Ativo';
+        } catch(e) { console.warn('[StoreManager] Realtime:', e.message); }
     }
 };
 window.StoreManager = StoreManager;
