@@ -9179,6 +9179,53 @@ CREATE POLICY "otica_allow_all"
                 this._startListeners(window._currentStore || 'barueri');
                 window.addEventListener('online',  () => { Toast.show('🌐 Conexão restaurada', 'info', 2000); });
                 window.addEventListener('offline', () => { Toast.show('📵 Sem conexão — Supabase requer internet', 'warning', 3000); });
+
+                // ── Reconecta automaticamente após inatividade (aba em background, tela bloqueada etc.) ──
+                let _visLastActive = Date.now();
+                document.addEventListener('visibilitychange', () => {
+                    if (document.hidden) {
+                        _visLastActive = Date.now();
+                        return;
+                    }
+                    // Aba voltou ao foco — verifica se ficou ausente por mais de 60 segundos
+                    const away = Date.now() - _visLastActive;
+                    if (away < 60000) return;
+                    console.log('[LocalFirst] Aba reativada após', Math.round(away/1000), 's — reconectando...');
+                    if (!navigator.onLine) return;
+                    const storeId = window._currentStore || 'barueri';
+                    // Reinicia canal realtime (WebSocket pode ter caído)
+                    try {
+                        this._stopListeners();
+                        this._realtimeStatus = 'Reconectando...';
+                        this._updatePanel();
+                    } catch(e) {}
+                    // Rebusca todos os dados frescos do Supabase
+                    this._realtimePaused = true;
+                    this._fetchAllData(storeId).finally(() => {
+                        this._realtimePaused = false;
+                        // Reinicia canal realtime após fetch
+                        try {
+                            const channel = supabase.channel('otica_store_' + storeId + '_' + Date.now())
+                                .on('postgres_changes', {
+                                    event: '*', schema: 'public', table: 'otica_data',
+                                    filter: 'store_id=eq.' + storeId
+                                }, (payload) => {
+                                    if (this._realtimePaused) return;
+                                    this._handleRealtimeChange(payload, storeId);
+                                })
+                                .subscribe((status) => {
+                                    if (status === 'SUBSCRIBED') {
+                                        this._realtimeStatus = 'Ativo';
+                                        Toast.show('🔄 Dados atualizados!', 'success', 2000);
+                                    } else if (status === 'CHANNEL_ERROR') {
+                                        this._realtimeStatus = 'Erro';
+                                    }
+                                    this._updatePanel();
+                                });
+                            this._listeners['_channel'] = channel;
+                        } catch(e) { console.warn('[LocalFirst] Erro ao reiniciar canal:', e.message); }
+                    });
+                });
                 console.log('[Supabase] Boot completo — listeners ativos para loja:', window._currentStore);
             },
 
@@ -13082,9 +13129,7 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                 
                 let sales = [...(state.sales || [])].filter(s => s && s.number && /OS-/i.test(s.number))
                     .sort((a, b) => {
-                        const da = new Date((b.date || '1970-01-01') + 'T12:00:00') - new Date((a.date || '1970-01-01') + 'T12:00:00');
-                        if (da !== 0) return da;
-                        // Mesmo dia: OS número maior primeiro (OS-2026-0038 > OS-2026-0035)
+                        // Ordena pelo número da OS decrescente (maior = mais recente)
                         const na = parseInt((a.number || '').replace(/\D/g,'')) || 0;
                         const nb = parseInt((b.number || '').replace(/\D/g,'')) || 0;
                         return nb - na;
@@ -16855,12 +16900,8 @@ ${container.innerHTML}
                 const clientMap = {};
                 (state.clients || []).forEach(c => { clientMap[c.id] = c; });
 
-                // Filtra entradas inválidas e ordena por data desc, depois por número desc (mais recente primeiro)
+                // Filtra entradas inválidas e ordena pelo número da OS decrescente (maior = mais recente)
                 let filtered = (state.sales || []).filter(s => s && s.number && /OS-/i.test(s.number)).slice().sort((a, b) => {
-                    const da = new Date((a.date || '1970-01-01') + 'T12:00:00');
-                    const db = new Date((b.date || '1970-01-01') + 'T12:00:00');
-                    if (db - da !== 0) return db - da;
-                    // Mesmo dia: ordena pelo número da OS (ex: OS-2026-0038 > OS-2026-0035)
                     const na = parseInt((a.number || '').replace(/\D/g, '')) || 0;
                     const nb = parseInt((b.number || '').replace(/\D/g, '')) || 0;
                     return nb - na;
