@@ -12624,10 +12624,18 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                 if (this._updating) return;
                 this._updating = true;
                 try {
-                    // renderAll() popula state._contasManuais antes de updateCards()
+                    // Popula state._contasManuais do cache em memória (instantâneo, sem Supabase)
+                    // para que _filteredExpenses() já tenha os dados das contas manuais
                     if (typeof ContasManager !== 'undefined') {
-                        try { await ContasManager.renderAll(); } catch(e) {}
+                        try {
+                            const raw = IDB._cache[ContasManager._storeKey];
+                            if (raw) {
+                                const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                                if (Array.isArray(parsed)) state._contasManuais = parsed;
+                            }
+                        } catch(e) {}
                     }
+                    // Atualiza os cards IMEDIATAMENTE — sem aguardar Supabase
                     this.updateCards();
                     this.updateSalesChart();
                     this.updateProductsChart();
@@ -12635,6 +12643,10 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                     this.updateBirthdayAlerts();
                     this.updateGlassesAlerts();
                     this._restoreHideValues();
+                    // Renderiza contas em background (não bloqueia a UI)
+                    if (typeof ContasManager !== 'undefined') {
+                        ContasManager.renderAll().catch(()=>{});
+                    }
                 } finally {
                     this._updating = false;
                 }
