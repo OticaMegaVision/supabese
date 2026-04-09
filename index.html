@@ -3082,7 +3082,7 @@
         }
         .carne-talao-page:last-child { page-break-after: avoid; }
 
-        /* Cada parcela ocupa 48mm de altura — cabe exato em A4 */
+        /* Cada parcela ocupa 55mm de altura */
         .carne-parcela {
             width: 210mm;
             box-sizing: border-box;
@@ -10633,7 +10633,8 @@ CREATE POLICY "otica_allow_all"
         // ==================== UTILITÁRIOS ====================
         const Utils = {
             formatCurrency(value) {
-                return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
+                const v = parseFloat(value);
+                return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(isNaN(v) ? 0 : v);
             },
 
             formatDate(dateString) {
@@ -11044,19 +11045,24 @@ CREATE POLICY "otica_allow_all"
 
                 // ==================== MOTOR DE PDF — ALTA QUALIDADE ====================
         // Configurações globais de qualidade
-        // ── Overlay de progresso para PDF ──────────────────────────────────
         function _showPDFLoading(msg) {
             let ov = document.getElementById('_pdfLoadingOverlay');
             if (!ov) {
                 ov = document.createElement('div');
                 ov.id = '_pdfLoadingOverlay';
-                ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:999999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;';
-                ov.innerHTML = '<div style="width:52px;height:52px;border:5px solid #ff6b00;border-top-color:transparent;border-radius:50%;animation:_pdfSpin 0.8s linear infinite;"></div>'
-                    + '<div id="_pdfLoadingMsg" style="color:#fff;font-family:Arial,sans-serif;font-size:15px;font-weight:700;text-align:center;padding:0 24px;"></div>'
-                    + '<style>@keyframes _pdfSpin{to{transform:rotate(360deg)}}</style>';
+                ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:999999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px';
+                const spinner = document.createElement('div');
+                spinner.style.cssText = 'width:52px;height:52px;border:5px solid #ff6b00;border-top-color:transparent;border-radius:50%;animation:pdfSpin 0.8s linear infinite';
+                const style = document.createElement('style');
+                style.textContent = '@keyframes pdfSpin{to{transform:rotate(360deg)}}';
+                const label = document.createElement('div');
+                label.id = '_pdfLoadingMsg';
+                label.style.cssText = 'color:#fff;font-family:Arial,sans-serif;font-size:15px;font-weight:700;text-align:center;padding:0 24px';
+                ov.appendChild(style); ov.appendChild(spinner); ov.appendChild(label);
                 document.body.appendChild(ov);
             }
-            document.getElementById('_pdfLoadingMsg').textContent = msg || 'Gerando PDF...';
+            const lbl = document.getElementById('_pdfLoadingMsg');
+            if (lbl) lbl.textContent = msg || 'Gerando PDF...';
             ov.style.display = 'flex';
         }
         function _hidePDFLoading() {
@@ -11147,7 +11153,7 @@ CREATE POLICY "otica_allow_all"
                 logging:         false,
                 useCORS:         true,
                 allowTaint:      true,
-                imageTimeout:    8000,         // timeout seguro para imagens
+                imageTimeout:    8000,        // timeout seguro
                 removeContainer: true,
                 x:               opcoes.x      || 0,
                 y:               opcoes.y      || 0,
@@ -11158,7 +11164,7 @@ CREATE POLICY "otica_allow_all"
                 scrollX:         0,
                 scrollY:         0,
                 onclone(clonedDoc) {
-                    // Injeta apenas regras essenciais — SEM iterar elementos (evita reflow massivo)
+                    // Injeta regras essenciais — SEM iterar elementos (evita reflow massivo)
                     const style = clonedDoc.createElement('style');
                     style.textContent = `
                         * {
@@ -11213,7 +11219,7 @@ CREATE POLICY "otica_allow_all"
             const PAGE_W_PX = Math.round(PAGE_W_MM * PX_PER_MM);
             const PAGE_H_PX = Math.round(PAGE_H_MM * PX_PER_MM);
 
-            _showPDFLoading('Gerando PDF… aguarde');
+            _showPDFLoading('Gerando PDF\u2026 aguarde');
             const container = _criarContainerPDF(elemento, PAGE_W_MM);
             await new Promise(r => setTimeout(r, RENDER_DELAY));
 
@@ -11238,39 +11244,28 @@ CREATE POLICY "otica_allow_all"
                 });
                 pdf.setProperties({ title: nomeArquivo, creator: 'ÓticaVision Pro' });
 
-                // ── Captura ÚNICA do canvas — fatiamos por página sem re-renderizar ──
+                // Captura ÚNICA — fatia por página sem re-renderizar o DOM
                 const captureH = opcoes.forceHeight ? PAGE_H_PX : totalH_px;
                 const fullCanvas = await _capturarCanvas(elemento, {
-                    larguraMM: PAGE_W_MM,
-                    width: PAGE_W_PX,
-                    height: captureH
+                    larguraMM: PAGE_W_MM, width: PAGE_W_PX, height: captureH
                 });
-
                 if (pagesNeeded === 1) {
                     const { data, format } = _canvasParaImagem(fullCanvas);
-                    const imgH_mm = opcoes.forceHeight
-                        ? PAGE_H_MM
-                        : (totalH_px / PAGE_H_PX) * PAGE_H_MM;
+                    const imgH_mm = opcoes.forceHeight ? PAGE_H_MM : (totalH_px / PAGE_H_PX) * PAGE_H_MM;
                     pdf.addImage(data, format, 0, 0, PAGE_W_MM, Math.min(imgH_mm, PAGE_H_MM), '', 'FAST');
                 } else {
-                    // ── Fatia o canvas já capturado — zero re-render do DOM ──
                     const sliceCanvas = document.createElement('canvas');
                     const sliceCtx    = sliceCanvas.getContext('2d');
                     sliceCanvas.width = fullCanvas.width;
                     const scaledPageH = PAGE_H_PX * SCALE;
-
                     for (let pg = 0; pg < pagesNeeded; pg++) {
-                        const clipY_px = pg * scaledPageH;
-                        const clipH_px = Math.min(scaledPageH, fullCanvas.height - clipY_px);
-
-                        sliceCanvas.height = clipH_px;
-                        sliceCtx.clearRect(0, 0, sliceCanvas.width, clipH_px);
-                        sliceCtx.drawImage(fullCanvas, 0, clipY_px, fullCanvas.width, clipH_px,
-                                                       0, 0,        fullCanvas.width, clipH_px);
-
+                        const clipY = pg * scaledPageH;
+                        const clipH = Math.min(scaledPageH, fullCanvas.height - clipY);
+                        sliceCanvas.height = clipH;
+                        sliceCtx.clearRect(0, 0, sliceCanvas.width, clipH);
+                        sliceCtx.drawImage(fullCanvas, 0, clipY, fullCanvas.width, clipH, 0, 0, fullCanvas.width, clipH);
                         const { data, format } = _canvasParaImagem(sliceCanvas);
-                        const imgH_mm = (clipH_px / scaledPageH) * PAGE_H_MM;
-
+                        const imgH_mm = (clipH / scaledPageH) * PAGE_H_MM;
                         if (pg > 0) pdf.addPage([PAGE_W_MM, PAGE_H_MM], PAGE_W_MM > PAGE_H_MM ? 'landscape' : 'portrait');
                         pdf.addImage(data, format, 0, 0, PAGE_W_MM, imgH_mm, `pg${pg}`, 'FAST');
                     }
@@ -11297,7 +11292,7 @@ CREATE POLICY "otica_allow_all"
             const { jsPDF } = window.jspdf;
             const { PX_PER_MM, RENDER_DELAY } = PDF_CONFIG;
 
-            _showPDFLoading('Gerando PDF… aguarde');
+            _showPDFLoading('Gerando PDF\u2026 aguarde');
             const container = _criarContainerPDF(elemento, larguraMM);
             await new Promise(r => setTimeout(r, RENDER_DELAY));
 
@@ -11317,7 +11312,7 @@ CREATE POLICY "otica_allow_all"
                     orientation: 'portrait',
                     unit: 'mm',
                     format: [larguraMM, alturaMM],
-                    compress: true,
+                    compress: false,
                 });
                 pdf.setProperties({ title: nomeArquivo, creator: 'ÓticaVision Pro' });
                 pdf.addImage(data, format, 0, 0, larguraMM, alturaMM, '', 'FAST');
@@ -11343,7 +11338,7 @@ CREATE POLICY "otica_allow_all"
             const { RENDER_DELAY } = PDF_CONFIG;
             const PAGE_W_MM = 210;
 
-            _showPDFLoading('Gerando PDF… aguarde');
+            _showPDFLoading('Gerando PDF\u2026 aguarde');
 
             const pdf = new jsPDF({
                 orientation: 'portrait',
@@ -11368,7 +11363,7 @@ CREATE POLICY "otica_allow_all"
                         const hMM_real = Math.min(h / PDF_CONFIG.PX_PER_MM, 297);
 
                         if (!first) pdf.addPage('a4', 'portrait');
-                        pdf.addImage(data, format, 0, 0, PAGE_W_MM, hMM_real, `via${first?0:1}`, 'FAST');
+                        pdf.addImage(data, format, 0, 0, PAGE_W_MM, hMM_real, `via${first?0:1}`, 'NONE');
                         first = false;
                     } finally {
                         if (document.body.contains(container)) document.body.removeChild(container);
@@ -11383,8 +11378,6 @@ CREATE POLICY "otica_allow_all"
             } catch (err) {
                 console.error('[PDF] Erro:', err);
                 Toast.show('Erro ao gerar PDF: ' + err.message, 'error');
-            } finally {
-                _hidePDFLoading();
             }
         }
 
@@ -13022,11 +13015,9 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
             },
 
             updateCards() {
-                console.log('[Dashboard] updateCards — state.sales:', (state.sales||[]).length, 'itens, período:', this._period);
                 const sales    = this._filteredSales();
                 const expenses = this._filteredExpenses();
                 const label    = this._periodLabel();
-                console.log('[Dashboard] vendas filtradas:', sales.length, '| despesas:', expenses.length);
 
                 const totalSales    = sales.reduce((a, s) => a + (s.total || 0), 0);
                 const totalExpenses = expenses.reduce((a, e) => a + (e.value || 0), 0);
@@ -16855,13 +16846,16 @@ ${container.innerHTML}
                 if (deliveryForecastEl) deliveryForecastEl.value = nextWeek.toISOString().slice(0, 10);
             },
 
+            _rhTimer: null,
             renderHistory() {
-                const tbody = document.querySelector('#salesHistoryTable tbody');
-                if (!tbody) return;
-                tbody.innerHTML = '';
-
-                // Aplicar filtros se existirem
-                this.filterHistory();
+                if (this._rhTimer) clearTimeout(this._rhTimer);
+                this._rhTimer = setTimeout(() => {
+                    this._rhTimer = null;
+                    const tbody = document.querySelector('#salesHistoryTable tbody');
+                    if (!tbody) return;
+                    tbody.innerHTML = '';
+                    this.filterHistory();
+                }, 80);
             },
 
             filterHistory() {
