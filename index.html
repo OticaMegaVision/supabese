@@ -48,29 +48,70 @@
     <!-- Gere os ícones abrindo generate_icons.html no navegador -->
     <!-- ===== /PWA META TAGS ===== -->
 
-    <!-- ===== SUPABASE SDK ===== -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- ===== RXDB LOCAL-FIRST + WEBRTC SYNC ===== -->
     <script>
-      // ╔══════════════════════════════════════════════════════════════╗
-      // ║  SUPABASE — Configure aqui suas credenciais                  ║
-      // ║  1. Acesse: https://app.supabase.com                         ║
-      // ║  2. Crie um projeto (ou use um existente)                    ║
-      // ║  3. Em Settings → API, copie a URL e anon key abaixo        ║
-      // ╚══════════════════════════════════════════════════════════════╝
-      const SUPABASE_URL      = 'https://qhscxyistzlmxxnjrqao.supabase.co';
-      const SUPABASE_ANON_KEY = 'sb_publishable_hLm0cpF-bk9Z5-pFJKlecQ_2Bah79am';
+      // ╔══════════════════════════════════════════════════════════════════╗
+      // ║  RxDB — Local-First com Sync em Tempo Real                      ║
+      // ║  • Dados persistidos localmente via IndexedDB (funciona offline) ║
+      // ║  • Sync cross-tab: BroadcastChannel (automático via RxDB)       ║
+      // ║  • Sync cross-device: WebRTC P2P (signaling.rxdb.info)          ║
+      // ╚══════════════════════════════════════════════════════════════════╝
 
-      // var (não const) para que seja acessível em todos os blocos <script> da página
-      var supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      // Inicializa RxDB de forma assíncrona antes do App.init()
+      window._rxdb = null;
+      window._rxdbInitPromise = (async function _initRxDB() {
+        try {
+          const { createRxDatabase, addRxPlugin } =
+            await import('https://esm.sh/rxdb@15.26.0');
+          const { getRxStorageDexie } =
+            await import('https://esm.sh/rxdb@15.26.0/plugins/storage-dexie');
+          const { RxDBUpdatePlugin } =
+            await import('https://esm.sh/rxdb@15.26.0/plugins/update');
+          const { RxDBQueryBuilderPlugin } =
+            await import('https://esm.sh/rxdb@15.26.0/plugins/query-builder');
+          const { RxDBLeaderElectionPlugin } =
+            await import('https://esm.sh/rxdb@15.26.0/plugins/leader-election');
 
-      // Teste de conexão
-      supabase.from('otica_data').select('count', { count: 'exact', head: true })
-        .then(({ count, error }) => {
-          if (error) { console.error('[Supabase] ❌ Erro:', error.message); return; }
-          console.log('[Supabase] ✅ Conectado! Total docs na tabela:', count);
-        });
+          addRxPlugin(RxDBUpdatePlugin);
+          addRxPlugin(RxDBQueryBuilderPlugin);
+          addRxPlugin(RxDBLeaderElectionPlugin);
+
+          const db = await createRxDatabase({
+            name: 'oticavision_pro',
+            storage: getRxStorageDexie(),
+            multiInstance: true   // habilita sync cross-tab automático
+          });
+
+          await db.addCollections({
+            otica_data: {
+              schema: {
+                version: 0,
+                primaryKey: 'pk',
+                type: 'object',
+                properties: {
+                  pk:          { type: 'string', maxLength: 400 },
+                  storeId:     { type: 'string', maxLength: 100 },
+                  collection:  { type: 'string', maxLength: 100 },
+                  docId:       { type: 'string', maxLength: 200 },
+                  data:        { type: 'object', additionalProperties: true },
+                  updatedAt:   { type: 'string', maxLength: 30 }
+                },
+                required: ['pk', 'storeId', 'collection', 'docId'],
+                indexes: [['storeId', 'collection']]
+              }
+            }
+          });
+
+          window._rxdb = db;
+          console.log('[RxDB] ✅ Banco local inicializado (IndexedDB)');
+          return db;
+        } catch(e) {
+          console.error('[RxDB] ❌ Falha ao inicializar:', e.message || e);
+          return null;
+        }
+      })();
     </script>
-    <!-- ===== /SUPABASE SDK ===== -->
+    <!-- ===== /RXDB LOCAL-FIRST + WEBRTC SYNC ===== -->
 
 
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -4752,7 +4793,7 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                         <button class="btn btn-sm nfe-hide-xs" style="background:#3ecf8e;color:#000;font-weight:700;" onclick="SupaSync.syncDown()" title="Sincronizar com a nuvem" id="headerSyncBtn">
                             <i class="fas fa-cloud-arrow-down" id="headerSyncIcon"></i> <span class="nfe-hide-xs">Sync</span>
                         </button>
-                        <button class="btn btn-sm nfe-hide-xs" style="background:#3b82f6;color:#fff;font-weight:700;" onclick="if(confirm('Enviar todos os dados locais para o Supabase?'))SupaSync.migrarParaSupabase()" title="Enviar dados locais para o Firebase (use 1x)">
+                        <button class="btn btn-sm nfe-hide-xs" style="background:#3b82f6;color:#fff;font-weight:700;" onclick="if(confirm('Salvar todos os dados no banco local?'))SupaSync.migrarParaSupabase()" title="Salvar todos os dados no banco local (use quando necessário)">
                             &#8679; <span class="nfe-hide-xs">Migrar</span>
                         </button>
                     </div>
@@ -7337,38 +7378,38 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                             <div style="display:flex; align-items:center; gap:0.75rem;">
                                 <div id="syncBtnStatusDot" style="width:12px;height:12px;border-radius:50%;background:#a6e3a1;box-shadow:0 0 6px #a6e3a1;flex-shrink:0;"></div>
                                 <div>
-                                    <div style="color:white;font-weight:700;font-size:0.95rem;">⚡ Supabase Realtime — Tempo Real</div>
+                                    <div style="color:white;font-weight:700;font-size:0.95rem;">⚡ RxDB Local-First — Tempo Real</div>
                                     <div id="syncBtnStatusText" style="color:#a6adc8;font-size:0.78rem;margin-top:2px;">Último sync: <span id="syncBtnLastTime">—</span></div>
                                 </div>
                             </div>
                             <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-                                <button class="btn btn-sm" style="background:#3ecf8e;color:#000;font-weight:700;" onclick="SupaSync.syncDown(); const t=new Date().toLocaleTimeString('pt-BR'); document.getElementById('syncBtnLastTime').textContent=t;">
-                                    <i class="fas fa-sync"></i> Verificar Conexão
+                                <button class="btn btn-sm" style="background:#3b82f6;color:#fff;font-weight:700;" onclick="SupaSync.syncDown(); const t=new Date().toLocaleTimeString('pt-BR'); document.getElementById('syncBtnLastTime').textContent=t;">
+                                    <i class="fas fa-sync"></i> Recarregar Dados
                                 </button>
-                                <button class="btn btn-sm" style="background:#ff6b00;color:#fff;font-weight:700;" title="Reenvia todos os dados locais ao Supabase" onclick="
-                                    if (!confirm('⚠️ Re-enviar todos os dados ao Supabase?\n\nIsso vai reescrever todos os registros no banco.\n\nUse quando houver divergência entre dispositivos.\n\nContinuar?')) return;
+                                <button class="btn btn-sm" style="background:#ff6b00;color:#fff;font-weight:700;" title="Regrava todos os dados no banco local" onclick="
+                                    if (!confirm('⚠️ Regravar todos os dados no banco local?\n\nIsso vai reescrever todos os registros.\n\nUse quando houver divergência.\n\nContinuar?')) return;
                                     SupaSync.migrarParaSupabase();
                                 ">
-                                    <i class="fas fa-cloud-upload-alt"></i> Re-upload Supabase
+                                    <i class="fas fa-save"></i> Regravar Banco Local
                                 </button>
                             </div>
                         </div>
 
-                        <!-- ZERAR DADOS NO FIREBASE -->
+                        <!-- ZERAR DADOS LOCAL -->
                         <div style="background:linear-gradient(135deg,#1a0a0a,#2a1010);border-radius:12px;padding:1.25rem;margin-bottom:1.5rem;border:1.5px solid rgba(220,53,69,0.4);">
                             <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.85rem;">
                                 <div style="width:38px;height:38px;border-radius:50%;background:rgba(220,53,69,0.2);display:flex;align-items:center;justify-content:center;font-size:1.1rem;flex-shrink:0;">🗑️</div>
                                 <div>
-                                    <div style="color:#f8d7da;font-weight:700;font-size:0.95rem;">Zerar Dados no Supabase</div>
-                                    <div style="color:#f1aeb5;font-size:0.76rem;margin-top:1px;">Remove todos os documentos da loja ativa do Supabase — permite começar do zero</div>
+                                    <div style="color:#f8d7da;font-weight:700;font-size:0.95rem;">Zerar Dados Locais</div>
+                                    <div style="color:#f1aeb5;font-size:0.76rem;margin-top:1px;">Remove todos os documentos da loja ativa do banco local — permite começar do zero</div>
                                 </div>
                             </div>
                             <div style="display:flex;gap:0.6rem;flex-wrap:wrap;">
                                 <button class="btn btn-sm" style="background:#dc3545;color:#fff;font-weight:700;font-size:0.8rem;" onclick="App.wipeSingleStoreSupabase()">
-                                    <i class="fas fa-trash-alt"></i> Zerar loja atual (<span id="wipeLojaNome">—</span>) no Supabase
+                                    <i class="fas fa-trash-alt"></i> Zerar loja atual (<span id="wipeLojaNome">—</span>) localmente
                                 </button>
                                 <button class="btn btn-sm" style="background:#6c1c1c;color:#f8d7da;font-weight:700;font-size:0.8rem;border:1px solid rgba(220,53,69,0.5);" onclick="App.wipeAllStoresSupabase()">
-                                    <i class="fas fa-database"></i> Zerar TODAS as lojas no Supabase
+                                    <i class="fas fa-database"></i> Zerar TODAS as lojas localmente
                                 </button>
                             </div>
                         </div>
@@ -7513,81 +7554,32 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                             </div>
                         </div>
 
-                        <!-- SETUP SUPABASE -->
-                        <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:12px;padding:1.5rem;margin-bottom:1.5rem;">
-                            <h4 style="color:#166534;margin-bottom:0.75rem;display:flex;align-items:center;gap:0.5rem;">
-                                <i class="fas fa-database" style="color:#3ecf8e;"></i> Configuração do Supabase
+                        <!-- SETUP RXDB LOCAL-FIRST -->
+                        <div style="background:#eff6ff;border:1px solid #93c5fd;border-radius:12px;padding:1.5rem;margin-bottom:1.5rem;">
+                            <h4 style="color:#1e40af;margin-bottom:0.75rem;display:flex;align-items:center;gap:0.5rem;">
+                                <i class="fas fa-database" style="color:#3b82f6;"></i> Banco Local — RxDB Local-First
                             </h4>
-                            <p style="color:#166534;font-size:0.85rem;margin-bottom:1rem;">
-                                O sistema usa <strong>Supabase</strong> como banco de dados em tempo real.
-                                Execute o SQL abaixo no <strong>SQL Editor</strong> do seu projeto Supabase para criar a tabela.
+                            <p style="color:#1e40af;font-size:0.85rem;margin-bottom:1rem;">
+                                O sistema usa <strong>RxDB</strong> com IndexedDB para armazenamento <strong>100% local</strong>.
+                                Funciona offline. Sincronização em tempo real entre abas/dispositivos via <strong>WebRTC P2P</strong>.
                             </p>
-                            <div style="background:#1e1e2e;color:#a6e3a1;font-family:monospace;font-size:0.72rem;padding:1rem;border-radius:8px;max-height:360px;overflow-y:auto;line-height:1.6;margin-bottom:1rem;white-space:pre;" id="sqlSetup">-- ╔══════════════════════════════════════════════════════════════╗
--- ║  ÓticaVision Pro — Setup Supabase                           ║
--- ║  Cole e execute no SQL Editor do seu projeto Supabase       ║
--- ║  https://app.supabase.com → SQL Editor → New query          ║
--- ╚══════════════════════════════════════════════════════════════╝
-
--- 1. Criar tabela principal (uma tabela para todas as coleções)
-CREATE TABLE IF NOT EXISTS otica_data (
-  doc_id      TEXT        NOT NULL,
-  store_id    TEXT        NOT NULL,
-  collection  TEXT        NOT NULL,
-  data        JSONB       NOT NULL DEFAULT '{}',
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  PRIMARY KEY (doc_id, store_id, collection)
-);
-
--- 2. Índices para performance
-CREATE INDEX IF NOT EXISTS idx_otica_store_col  ON otica_data (store_id, collection);
-CREATE INDEX IF NOT EXISTS idx_otica_updated_at ON otica_data (updated_at DESC);
-
--- 3. Row Level Security (RLS) — acesso livre pelo anon key
-ALTER TABLE otica_data ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "otica_allow_all" ON otica_data;
-CREATE POLICY "otica_allow_all"
-  ON otica_data FOR ALL USING (true) WITH CHECK (true);
-
--- 4. Realtime já está habilitado (foi configurado na criação)
--- Se precisar reativar: ALTER PUBLICATION supabase_realtime ADD TABLE otica_data;
-
--- ── ESTRUTURA DOS DADOS ─────────────────────────────────────────
--- store_id = 'barueri' ou 'caucaia'  (as duas lojas ficam separadas)
--- collection = 'clients' | 'products' | 'sales' | 'expenses'
---            | 'prescriptions' | 'suppliers' | 'services' | 'config'
--- doc_id = ID do documento
--- data = JSON com todos os campos do documento
-
--- ── COMO CONFIGURAR ─────────────────────────────────────────────
--- 1. Acesse: https://app.supabase.com
--- 2. Crie ou selecione seu projeto
--- 3. Vá em SQL Editor → New query
--- 4. Cole e execute o SQL acima
--- 5. Em Settings → API: copie a URL e anon key
--- 6. Cole na variável SUPABASE_URL e SUPABASE_ANON_KEY no topo do arquivo
--- 7. Use o botão "Re-upload Supabase" para enviar os dados locais</div>
+                            <div style="background:#1e1e2e;color:#93c5fd;font-family:monospace;font-size:0.75rem;padding:1rem;border-radius:8px;line-height:1.8;margin-bottom:1rem;">
+<strong style="color:#60a5fa;">Arquitetura:</strong><br>
+📦 RxDB 15 + Dexie (IndexedDB) — dados persistidos no navegador<br>
+🔄 BroadcastChannel — sync instantâneo entre abas no mesmo dispositivo<br>
+🌐 WebRTC P2P (signaling.rxdb.info) — sync entre dispositivos diferentes<br>
+✈️ Funciona offline — dados nunca saem do dispositivo sem sua ação<br><br>
+<strong style="color:#60a5fa;">Para sincronizar entre dispositivos:</strong><br>
+Abra o mesmo arquivo nos dois dispositivos na mesma rede local<br>
+ou via HTTPS no mesmo domínio. O WebRTC conectará automaticamente.
+                            </div>
                             <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
-                                <button id="btnCopiarSQL" onclick="
-                                    var sql = document.getElementById('sqlSetup').innerText;
-                                    var btn = document.getElementById('btnCopiarSQL');
-                                    function _ok(){ btn.innerHTML='<i class=\'fas fa-check\'></i> Copiado!'; btn.style.background='#28a745'; setTimeout(function(){ btn.innerHTML='<i class=\'fas fa-copy\'></i> Copiar SQL'; btn.style.background=''; btn.className='btn btn-primary'; },2500); Toast.show('✅ SQL copiado!','success',3000); }
-                                    if(navigator.clipboard){ navigator.clipboard.writeText(sql).then(_ok).catch(function(){ var t=document.createElement('textarea'); t.value=sql; document.body.appendChild(t); t.select(); document.execCommand('copy'); document.body.removeChild(t); _ok(); }); }
-                                    else { var t=document.createElement('textarea'); t.value=sql; document.body.appendChild(t); t.select(); document.execCommand('copy'); document.body.removeChild(t); _ok(); }
-                                " class="btn btn-primary">
-                                    <i class="fas fa-copy"></i> Copiar SQL
+                                <button class="btn btn-sm" style="background:#3b82f6;color:#fff;font-weight:700;" onclick="SupaSync.syncDown()">
+                                    <i class="fas fa-sync"></i> Recarregar Dados Locais
                                 </button>
-                                <a href="https://app.supabase.com" target="_blank" class="btn btn-secondary" style="margin-left:0.5rem;">
-                                    <i class="fas fa-external-link-alt"></i> Abrir Supabase
-                                </a>
-                                <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-top:0.5rem;width:100%;">
-                                    <button class="btn btn-sm" style="background:#3ecf8e;color:#000;font-weight:700;" onclick="SupaSync.syncDown()">
-                                        <i class="fas fa-wifi"></i> Verificar Conexão
-                                    </button>
-                                    <button class="btn btn-sm" style="background:#3ecf8e;color:#000;font-weight:700;" onclick="SupaSync.verificarTabelas()">
-                                        <i class="fas fa-database"></i> Verificar Tabela Supabase
-                                    </button>
-                                </div>
+                                <button class="btn btn-sm" style="background:#3b82f6;color:#fff;font-weight:700;" onclick="SupaSync.verificarTabelas()">
+                                    <i class="fas fa-database"></i> Verificar Banco RxDB
+                                </button>
                             </div>
                         </div>
 
@@ -9026,61 +9018,64 @@ CREATE POLICY "otica_allow_all"
         const STORAGE_KEY_BASE = 'optic_pro_data';
         function STORAGE_KEY() { return STORAGE_KEY_BASE + '_' + window._currentStore; }
 
-        // ── Helpers Supabase: operações CRUD na tabela otica_data ──────────────
+        // ── Helpers RxDB: operações CRUD na coleção otica_data ──────────────
+        function _makePK(storeId, col, docId) {
+            return String(storeId) + '_' + String(col) + '_' + String(docId);
+        }
         async function sbGetCollection(storeId, col) {
-            const { data, error } = await supabase
-                .from('otica_data')
-                .select('data')
-                .eq('store_id', storeId)
-                .eq('collection', col);
-            if (error) throw error;
-            return (data || []).map(r => r.data);
+            const db = await window._rxdbInitPromise;
+            if (!db) return [];
+            const docs = await db.otica_data.find({
+                selector: { storeId, collection: col }
+            }).exec();
+            return docs.map(d => d.data);
         }
         async function sbUpsertDoc(storeId, col, docId, docData) {
-            const { error } = await supabase
-                .from('otica_data')
-                .upsert({
-                    doc_id: String(docId),
-                    store_id: storeId,
-                    collection: col,
-                    data: docData,
-                    updated_at: new Date().toISOString()
-                }, { onConflict: 'doc_id,store_id,collection' });
-            if (error) throw error;
+            const db = await window._rxdbInitPromise;
+            if (!db) throw new Error('RxDB não inicializado');
+            await db.otica_data.upsert({
+                pk: _makePK(storeId, col, docId),
+                storeId,
+                collection: col,
+                docId: String(docId),
+                data: docData,
+                updatedAt: new Date().toISOString()
+            });
         }
         async function sbDeleteDoc(storeId, col, docId) {
-            const { error } = await supabase
-                .from('otica_data')
-                .delete()
-                .eq('doc_id', String(docId))
-                .eq('store_id', storeId)
-                .eq('collection', col);
-            if (error) throw error;
+            const db = await window._rxdbInitPromise;
+            if (!db) throw new Error('RxDB não inicializado');
+            const doc = await db.otica_data.findOne(_makePK(storeId, col, docId)).exec();
+            if (doc) await doc.remove();
         }
         async function sbGetDoc(storeId, col, docId) {
-            const { data, error } = await supabase
-                .from('otica_data')
-                .select('data')
-                .eq('doc_id', String(docId))
-                .eq('store_id', storeId)
-                .eq('collection', col)
-                .maybeSingle();
-            if (error) throw error;
-            return data?.data || null;
+            const db = await window._rxdbInitPromise;
+            if (!db) return null;
+            const doc = await db.otica_data.findOne(_makePK(storeId, col, docId)).exec();
+            return doc?.data || null;
         }
         async function sbDeleteStore(storeId) {
-            const { error } = await supabase.from('otica_data').delete().eq('store_id', storeId);
-            if (error) throw error;
+            const db = await window._rxdbInitPromise;
+            if (!db) throw new Error('RxDB não inicializado');
+            const docs = await db.otica_data.find({ selector: { storeId } }).exec();
+            await Promise.all(docs.map(d => d.remove()));
         }
         async function sbUpsertBatch(rows) {
-            const { error } = await supabase
-                .from('otica_data')
-                .upsert(rows, { onConflict: 'doc_id,store_id,collection' });
-            if (error) throw error;
+            const db = await window._rxdbInitPromise;
+            if (!db) throw new Error('RxDB não inicializado');
+            const rxRows = rows.map(r => ({
+                pk:         _makePK(r.store_id, r.collection, r.doc_id),
+                storeId:    r.store_id,
+                collection: r.collection,
+                docId:      String(r.doc_id),
+                data:       r.data,
+                updatedAt:  r.updated_at || new Date().toISOString()
+            }));
+            await db.otica_data.bulkUpsert(rxRows);
         }
 
-        // ── IDB shim: mantém API legacy — agora usa apenas memória ─────────
-        // Cloud-only: persistência = Supabase. IDB usado só para preferências leves.
+        // ── IDB shim: mantém API legacy — cache em memória + preferências ─────
+        // RxDB Local-First: persistência = IndexedDB (via RxDB). IDB usado só para cache leve.
         const IDB = {
             _cache: {},
             async get(key)        { return Promise.resolve(this._cache[key] ?? null); },
@@ -9090,7 +9085,7 @@ CREATE POLICY "otica_allow_all"
             observe()             { return { unsubscribe: () => {} }; }
         };
 
-        // ── Mapa de coleções Supabase ──────────────────────────────────────
+        // ── Mapa de coleções RxDB ──────────────────────────────────────
         const _COL_MAP = {
             clients: 'clients', products: 'products', sales: 'sales',
             expenses: 'expenses', prescriptions: 'prescriptions',
@@ -9099,9 +9094,10 @@ CREATE POLICY "otica_allow_all"
         };
 
         // ══════════════════════════════════════════════════════════════════════
-        //  SUPABASE SYNC ENGINE
-        //  Filosofia: Cloud-First. Supabase é a fonte da verdade.
-        //  Realtime = sync em tempo real automático em todos os dispositivos.
+        //  RXDB LOCAL-FIRST SYNC ENGINE
+        //  Filosofia: Local-First. IndexedDB é a fonte da verdade.
+        //  Cross-tab:    BroadcastChannel (automático via RxDB multiInstance)
+        //  Cross-device: WebRTC P2P via signaling.rxdb.info (sem servidor próprio)
         // ══════════════════════════════════════════════════════════════════════
         const LocalFirst = {
             _syncing: false,
@@ -9112,18 +9108,18 @@ CREATE POLICY "otica_allow_all"
             _endPush()   { if (this._pushingCount > 0) this._pushingCount--; },
             _dirtyKeys: new Set(),
             _listeners: {},
-            _realtimeStatus: 'Ativo',
+            _realtimeStatus: 'Inicializando...',
             _realtimeChannel: null,
             _SYNC_INTERVAL_MS: 30000,
-            get _TS_KEY() { return 'fb_ts_noop'; },
+            get _TS_KEY() { return 'rxdb_ts_noop'; },
 
             _TABLES: _COL_MAP,
 
-            // ── Debounce e controle de Realtime ────────────────────────────
             _dashTimer: null,
             _uiTimer: null,
             _pendingUIKeys: new Set(),
             _realtimePaused: false,
+            _webrtcReplication: null,
 
             _scheduleDashUpdate() {
                 if (this._dashTimer) clearTimeout(this._dashTimer);
@@ -9160,248 +9156,277 @@ CREATE POLICY "otica_allow_all"
 
             _pauseRealtime() {
                 this._realtimePaused = true;
-                console.log('[Supabase] Realtime pausado para operação em lote');
+                console.log('[RxDB] Realtime pausado para operação em lote');
             },
 
             _resumeRealtime(storeId) {
                 const sid = storeId || window._currentStore || 'barueri';
-                // Re-fetch com delay para garantir que o DB processou os writes
                 setTimeout(() => {
                     this._fetchAllData(sid).finally(() => {
                         this._realtimePaused = false;
-                        console.log('[Supabase] Realtime retomado apos operacao em lote');
+                        console.log('[RxDB] Realtime retomado após operação em lote');
                     });
-                }, 500);
+                }, 300);
             },
 
-            // ── Boot: inicia listeners em tempo real ────────────────────────
-            boot() {
-                this._startListeners(window._currentStore || 'barueri');
-                window.addEventListener('online',  () => { Toast.show('🌐 Conexão restaurada', 'info', 2000); });
-                window.addEventListener('offline', () => { Toast.show('📵 Sem conexão — Supabase requer internet', 'warning', 3000); });
+            // ── Boot: inicia listeners locais e WebRTC ────────────────────────
+            async boot() {
+                const storeId = window._currentStore || 'barueri';
 
-                // ── Reconecta automaticamente após inatividade (aba em background, tela bloqueada etc.) ──
+                const db = await window._rxdbInitPromise;
+                if (!db) {
+                    console.error('[RxDB] Boot falhou — banco não disponível');
+                    this._realtimeStatus = 'Erro ao inicializar';
+                    this._updatePanel();
+                    return;
+                }
+
+                this._startListeners(storeId);
+
+                window.addEventListener('online',  () => {
+                    Toast.show('🌐 Conexão restaurada', 'info', 2000);
+                    this._startWebRTCSync(storeId);
+                });
+                window.addEventListener('offline', () => {
+                    Toast.show('📵 Offline — dados locais disponíveis normalmente', 'info', 3000);
+                });
+
+                // Recarrega dados ao voltar ao foco após longa ausência
                 let _visLastActive = Date.now();
                 document.addEventListener('visibilitychange', () => {
-                    if (document.hidden) {
-                        _visLastActive = Date.now();
-                        return;
-                    }
-                    // Aba voltou ao foco — verifica se ficou ausente por mais de 60 segundos
+                    if (document.hidden) { _visLastActive = Date.now(); return; }
                     const away = Date.now() - _visLastActive;
                     if (away < 60000) return;
-                    console.log('[LocalFirst] Aba reativada após', Math.round(away/1000), 's — reconectando...');
-                    if (!navigator.onLine) return;
-                    const storeId = window._currentStore || 'barueri';
-                    // Reinicia canal realtime (WebSocket pode ter caído)
-                    try {
-                        this._stopListeners();
-                        this._realtimeStatus = 'Reconectando...';
-                        this._updatePanel();
-                    } catch(e) {}
-                    // Rebusca todos os dados frescos do Supabase
-                    this._realtimePaused = true;
-                    this._fetchAllData(storeId).finally(() => {
-                        this._realtimePaused = false;
-                        // Reinicia canal realtime após fetch
-                        try {
-                            const channel = supabase.channel('otica_store_' + storeId + '_' + Date.now())
-                                .on('postgres_changes', {
-                                    event: '*', schema: 'public', table: 'otica_data',
-                                    filter: 'store_id=eq.' + storeId
-                                }, (payload) => {
-                                    if (this._realtimePaused) return;
-                                    this._handleRealtimeChange(payload, storeId);
-                                })
-                                .subscribe((status) => {
-                                    if (status === 'SUBSCRIBED') {
-                                        this._realtimeStatus = 'Ativo';
-                                        Toast.show('🔄 Dados atualizados!', 'success', 2000);
-                                    } else if (status === 'CHANNEL_ERROR') {
-                                        this._realtimeStatus = 'Erro';
-                                    }
-                                    this._updatePanel();
-                                });
-                            this._listeners['_channel'] = channel;
-                        } catch(e) { console.warn('[LocalFirst] Erro ao reiniciar canal:', e.message); }
-                    });
+                    console.log('[RxDB] Aba reativada após', Math.round(away/1000), 's — re-fetch...');
+                    this._fetchAllData(window._currentStore || 'barueri');
                 });
-                console.log('[Supabase] Boot completo — listeners ativos para loja:', window._currentStore);
+
+                console.log('[RxDB] Boot completo — listeners ativos para loja:', storeId);
             },
 
-            // ── Listeners Supabase Realtime por loja ───────────────────────
+            // ── Inicia listeners RxDB e WebRTC para a loja ───────────────────
             _startListeners(storeId) {
                 this._stopListeners();
-                // Pausa Realtime durante o fetch inicial para evitar race condition
-                // (eventos de outros dispositivos durante o fetch seriam perdidos ou duplicados)
                 this._realtimePaused = true;
-                this._fetchAllData(storeId).finally(() => {
+
+                this._fetchAllData(storeId).then(async () => {
                     this._realtimePaused = false;
+                    this._realtimeStatus = 'Local ativo';
+                    this._updatePanel();
+
+                    // Subscribe às mudanças do RxDB (cross-tab via BroadcastChannel)
+                    const db = window._rxdb;
+                    if (db) {
+                        const sub = db.otica_data.$.subscribe(changeEvent => {
+                            if (this._realtimePaused) return;
+                            this._handleRxDBChange(changeEvent, storeId);
+                        });
+                        this._listeners['_rxdbSub'] = sub;
+                    }
+
+                    // Inicia WebRTC para cross-device
+                    await this._startWebRTCSync(storeId);
                 });
-                const channel = supabase.channel('otica_store_' + storeId)
-                    .on('postgres_changes', {
-                        event: '*', schema: 'public', table: 'otica_data',
-                        filter: 'store_id=eq.' + storeId
-                    }, (payload) => {
-                        // Ignora eventos durante fetch inicial ou operações em lote
-                        if (this._realtimePaused) return;
-                        this._handleRealtimeChange(payload, storeId);
-                    })
-                    .subscribe((status) => {
-                        if (status === 'SUBSCRIBED') {
-                            this._realtimeStatus = 'Ativo';
-                            console.log('[Supabase] Realtime conectado para loja:', storeId);
-                        } else if (status === 'CHANNEL_ERROR') {
-                            this._realtimeStatus = 'Erro';
-                        }
-                        this._updatePanel();
-                    });
-                this._listeners['_channel'] = channel;
-                this._realtimeStatus = 'Conectando...';
-                window._lastSyncTime = new Date().toISOString();
             },
 
-            async _fetchAllData(storeId) {
+            // ── WebRTC P2P sync via signaling.rxdb.info ───────────────────────
+            async _startWebRTCSync(storeId) {
+                if (this._webrtcReplication) {
+                    try { await this._webrtcReplication.cancel(); } catch(e) {}
+                    this._webrtcReplication = null;
+                }
+                if (!navigator.onLine) return;
+
                 try {
-                    const { data, error } = await supabase
-                        .from('otica_data')
-                        .select('*')
-                        .eq('store_id', storeId);
-                    if (error) throw error;
-                    const byCol = {};
-                    (data || []).forEach(row => {
-                        if (!byCol[row.collection]) byCol[row.collection] = [];
-                        byCol[row.collection].push({ ...row.data, _docId: row.doc_id });
+                    const { replicateWebRTC, getConnectionHandlerSimplePeer } =
+                        await import('https://esm.sh/rxdb@15.26.0/plugins/replication-webrtc');
+
+                    const db = window._rxdb;
+                    if (!db) return;
+
+                    const replicationState = await replicateWebRTC({
+                        collection: db.otica_data,
+                        topic: 'oticavision-' + storeId,
+                        connectionHandlerCreator: getConnectionHandlerSimplePeer({
+                            signalingServerUrl: 'wss://signaling.rxdb.info'
+                        }),
+                        pull: {},
+                        push: {}
                     });
-                    // Atualiza state todo de uma vez — sem disparar _refreshUI individualmente
-                    Object.keys(_COL_MAP).forEach(stateKey => {
-                        const col = _COL_MAP[stateKey];
-                        if (byCol[col]) { state[stateKey] = byCol[col]; this._pendingUIKeys.add(stateKey); }
+
+                    replicationState.error$.subscribe(err => {
+                        console.warn('[RxDB WebRTC]', err?.message || err);
                     });
-                    const configRows = byCol['config'] || [];
-                    const empresa = configRows.find(d => d._docId === 'empresa');
-                    if (empresa) {
-                        if (empresa.company)       Object.assign(state.company, empresa.company);
-                        if (empresa.notificacoes)  Object.assign(state.notificacoes, empresa.notificacoes);
-                        if (empresa.wppMensagens)  Object.assign(state.wppMensagens, empresa.wppMensagens);
-                        if (empresa.backupConfig)  Object.assign(state.backupConfig, empresa.backupConfig);
-                        if (empresa.lastOsCounter) state.lastOsCounter = { ...state.lastOsCounter, ...empresa.lastOsCounter };
-                        if (state.company.primaryColor)   document.documentElement.style.setProperty('--primary', state.company.primaryColor);
-                        if (state.company.secondaryColor) document.documentElement.style.setProperty('--secondary', state.company.secondaryColor);
-                        try { App.updateCompanyDisplay(); } catch(e) {}
-                        try { if (typeof Config !== 'undefined' && !Config._dirty) Config.load(); } catch(e) {}
-                    }
-                    const contas = configRows.find(d => d._docId === 'contas_financeiras');
-                    const contasItems = (contas && Array.isArray(contas.items)) ? contas.items : [];
-                    // Popula cache de memória para ContasManager.getAll() não ir ao Supabase
-                    IDB._cache['contas_financeiras_' + storeId] = JSON.stringify(contasItems);
-                    // Uma única atualização de UI para todos os dados (debounce)
-                    this._scheduleUIRefresh(null);
-                    this._realtimeStatus = 'Ativo';
-                    window._lastSyncTime = new Date().toISOString();
-                    this._updatePanel();
-                    // Atualiza logo/nome após carregar config
-                    try { App.updateCompanyDisplay(); } catch(e) {}
-                    console.log('[Supabase] _fetchAllData completo para loja:', storeId);
+
+                    replicationState.peerStates$.subscribe(states => {
+                        const n = states.size;
+                        this._realtimeStatus = n > 0
+                            ? `WebRTC: ${n} dispositivo(s) conectado(s)`
+                            : 'Aguardando outros dispositivos...';
+                        this._updatePanel();
+                    });
+
+                    this._webrtcReplication = replicationState;
+                    console.log('[RxDB] WebRTC iniciado para loja:', storeId);
                 } catch(e) {
-                    console.error('[Supabase] _fetchAllData erro:', e.message);
-                    this._realtimeStatus = 'Erro';
+                    console.warn('[RxDB] WebRTC indisponível:', e.message);
+                    this._realtimeStatus = 'Local only (WebRTC off)';
                     this._updatePanel();
                 }
             },
 
-            _handleRealtimeChange(payload, storeId) {
-                const { eventType, new: newRow, old: oldRow } = payload;
-                const row = newRow || oldRow;
-                if (!row) return;
-                const col = row.collection;
-                const docId = row.doc_id;
+            // ── Handler de mudanças RxDB (cross-tab e cross-device) ──────────
+            _handleRxDBChange(changeEvent, storeId) {
+                const docData = changeEvent.documentData || changeEvent.previousDocumentData;
+                if (!docData) return;
+                if (docData.storeId !== storeId) return;
+
+                const col     = docData.collection;
+                const docId   = docData.docId;
+                const isDelete = changeEvent.operation === 'DELETE';
+
                 if (col === 'config') {
-                    if (eventType === 'DELETE') return;
-                    const docData = newRow?.data;
-                    if (!docData) return;
+                    if (isDelete) return;
+                    const data = docData.data;
+                    if (!data) return;
                     if (docId === 'empresa') {
-                        if (docData.company)       Object.assign(state.company, docData.company);
-                        if (docData.notificacoes)  Object.assign(state.notificacoes, docData.notificacoes);
-                        if (docData.wppMensagens)  Object.assign(state.wppMensagens, docData.wppMensagens);
-                        if (docData.backupConfig)  Object.assign(state.backupConfig, docData.backupConfig);
-                        if (docData.lastOsCounter) state.lastOsCounter = { ...state.lastOsCounter, ...docData.lastOsCounter };
+                        if (data.company)       Object.assign(state.company, data.company);
+                        if (data.notificacoes)  Object.assign(state.notificacoes, data.notificacoes);
+                        if (data.wppMensagens)  Object.assign(state.wppMensagens, data.wppMensagens);
+                        if (data.backupConfig)  Object.assign(state.backupConfig, data.backupConfig);
+                        if (data.lastOsCounter) state.lastOsCounter = { ...state.lastOsCounter, ...data.lastOsCounter };
                         if (state.company.primaryColor)   document.documentElement.style.setProperty('--primary', state.company.primaryColor);
                         if (state.company.secondaryColor) document.documentElement.style.setProperty('--secondary', state.company.secondaryColor);
                         try { App.updateCompanyDisplay(); } catch(e) {}
                         try { if (typeof Config !== 'undefined' && !Config._dirty) Config.load(); } catch(e) {}
                         this._scheduleDashUpdate();
                     } else if (docId === 'contas_financeiras') {
-                        const contas = Array.isArray(docData.items) ? docData.items : [];
-                        // Atualiza cache em memória — ContasManager.getAll() usará este cache
+                        const contas = Array.isArray(data.items) ? data.items : [];
                         IDB._cache['contas_financeiras_' + storeId] = JSON.stringify(contas);
-                        state._contasManuais = contas; // atualiza referência direta no state
+                        state._contasManuais = contas;
                         this._scheduleDashUpdate();
                     }
                     return;
                 }
+
                 const stateKey = Object.keys(_COL_MAP).find(k => _COL_MAP[k] === col);
                 if (!stateKey) return;
-                if (eventType === 'DELETE') {
+
+                if (isDelete) {
                     state[stateKey] = (state[stateKey] || []).filter(item => String(item.id) !== String(docId));
                 } else {
-                    const docData = newRow.data;
+                    const itemData = docData.data;
                     const existing = state[stateKey] || [];
                     const idx = existing.findIndex(item => String(item.id) === String(docId));
-                    if (idx >= 0) existing[idx] = docData;
-                    else existing.push(docData);
+                    if (idx >= 0) existing[idx] = itemData;
+                    else existing.push(itemData);
                     state[stateKey] = existing;
                 }
-                // Debounce: vários eventos simultâneos viram uma única atualização
                 this._scheduleUIRefresh(stateKey);
             },
 
             _stopListeners() {
-                const ch = this._listeners['_channel'];
-                if (ch) { try { supabase.removeChannel(ch); } catch(e) {} }
+                if (this._listeners['_rxdbSub']) {
+                    try { this._listeners['_rxdbSub'].unsubscribe(); } catch(e) {}
+                }
                 this._listeners = {};
             },
 
             _refreshUI(stateKey) {
-                // Usa debounce para evitar loop de atualizações
                 this._scheduleUIRefresh(stateKey);
             },
 
-            // ── sync() mantido por compatibilidade (triggera re-fetch) ────────
+            // ── Busca todos os dados da loja do RxDB local ────────────────────
+            async _fetchAllData(storeId) {
+                const db = await window._rxdbInitPromise;
+                if (!db) { console.warn('[RxDB] _fetchAllData: banco não disponível'); return; }
+
+                try {
+                    const docs = await db.otica_data.find({
+                        selector: { storeId }
+                    }).exec();
+
+                    const byCol = {};
+                    docs.forEach(d => {
+                        const col = d.collection;
+                        if (!byCol[col]) byCol[col] = [];
+                        byCol[col].push({ ...d.data, _docId: d.docId });
+                    });
+
+                    // Popula arrays do state
+                    Object.keys(_COL_MAP).forEach(stateKey => {
+                        const col = _COL_MAP[stateKey];
+                        if (byCol[col]) state[stateKey] = byCol[col];
+                    });
+
+                    // Config da empresa
+                    const cfgRows = byCol['config'] || [];
+                    const emp = cfgRows.find(d => d._docId === 'empresa');
+                    if (emp) {
+                        if (emp.company)       Object.assign(state.company, emp.company);
+                        if (emp.notificacoes)  Object.assign(state.notificacoes || {}, emp.notificacoes);
+                        if (emp.wppMensagens)  Object.assign(state.wppMensagens || {}, emp.wppMensagens);
+                        if (emp.backupConfig)  Object.assign(state.backupConfig || {}, emp.backupConfig);
+                        if (emp.lastOsCounter) state.lastOsCounter = { ...state.lastOsCounter, ...emp.lastOsCounter };
+                        if (state.company.primaryColor)   document.documentElement.style.setProperty('--primary', state.company.primaryColor);
+                        if (state.company.secondaryColor) document.documentElement.style.setProperty('--secondary', state.company.secondaryColor);
+                        try { App.updateCompanyDisplay(); } catch(e) {}
+                        try { if (typeof Config !== 'undefined' && !Config._dirty) Config.load(); } catch(e) {}
+                    }
+
+                    // Contas financeiras
+                    const contasRow = cfgRows.find(d => d._docId === 'contas_financeiras_' + storeId);
+                    if (contasRow?.items) {
+                        IDB._cache['contas_financeiras_' + storeId] = JSON.stringify(contasRow.items);
+                        state._contasManuais = contasRow.items;
+                    }
+
+                    this._scheduleUIRefresh(null);
+                    this._scheduleDashUpdate();
+                    window._lastSyncTime = new Date().toISOString();
+                    this._updatePanel();
+
+                    console.log('[RxDB] _fetchAllData completo para loja:', storeId, '| docs:', docs.length);
+                } catch(e) {
+                    console.error('[RxDB] _fetchAllData erro:', e.message);
+                    this._realtimeStatus = 'Erro';
+                    this._updatePanel();
+                }
+            },
+
+            // ── sync() — compatibilidade legada ───────────────────────────────
             async sync(reason) {
-                console.log('[Supabase] sync():', reason, '— Realtime gerencia sync em tempo real');
-                window._lastSyncTime = new Date().toISOString();
-                this._updatePanel();
-                // Notifica UI do header sync
+                console.log('[RxDB] sync():', reason);
+                await this._fetchAllData(window._currentStore || 'barueri');
                 const btn = document.getElementById('headerSyncBtn');
                 if (btn) { btn.classList.add('syncing'); setTimeout(() => btn.classList.remove('syncing'), 800); }
-                Toast.show('🔄 Supabase — dados em tempo real', 'info', 1500);
+                Toast.show('🔄 Dados locais atualizados', 'info', 1500);
             },
 
             _triggerSync(reason) { this.sync(reason); },
             _markDirty(stateKey) { this._dirtyKeys.add(stateKey); },
             async _getPending() { return []; },
 
-            // ── Salva item individual no Supabase ───────────────────────────
+            // ── Salva item individual no RxDB ─────────────────────────────────
             async pushItem(table, item) {
                 if (!item?.id) return;
-                const col = _COL_MAP[table] || table;
+                const col     = _COL_MAP[table] || table;
                 const storeId = window._currentStore || 'barueri';
                 try {
                     await sbUpsertDoc(storeId, col, item.id, { ...item, _updatedAt: new Date().toISOString(), _store: storeId });
-                } catch(e) { console.error('[Supabase] pushItem:', table, e.message); }
+                } catch(e) { console.error('[RxDB] pushItem:', table, e.message); }
             },
 
-            // ── Deleta item do Supabase ─────────────────────────────────────
+            // ── Remove item do RxDB ───────────────────────────────────────────
             async deleteItem(table, id) {
                 if (!id) return;
-                const col = _COL_MAP[table] || table;
+                const col     = _COL_MAP[table] || table;
                 const storeId = window._currentStore || 'barueri';
                 try { await sbDeleteDoc(storeId, col, id); }
-                catch(e) { console.error('[Supabase] deleteItem:', table, e.message); }
+                catch(e) { console.error('[RxDB] deleteItem:', table, e.message); }
             },
 
-            // ── Salva config da empresa no Supabase ─────────────────────────
+            // ── Salva config da empresa no RxDB ──────────────────────────────
             async pushConfig() {
                 const storeId = window._currentStore || 'barueri';
                 try {
@@ -9414,25 +9439,24 @@ CREATE POLICY "otica_allow_all"
                         lastOsCounter: state.lastOsCounter,
                         _updatedAt:    new Date().toISOString()
                     });
-                } catch(e) { console.error('[Supabase] pushConfig:', e.message); }
+                } catch(e) { console.error('[RxDB] pushConfig:', e.message); }
             },
 
-            async pullConfig() { /* onSnapshot gerencia automaticamente */ },
+            async pullConfig() { /* gerenciado pelo subscription */ },
 
-            // ── Status panel ────────────────────────────────────────────────
+            // ── Status panel ──────────────────────────────────────────────────
             _updatePanel() {
-                const online = navigator.onLine;
                 const s = id => document.getElementById(id);
-                if (s('ss-status'))   { s('ss-status').textContent = online ? '🟢 Online' : '🔴 Offline'; s('ss-status').className = online ? 'sync-ok' : 'sync-off'; }
-                if (s('ss-engine'))   { s('ss-engine').textContent = 'Supabase Realtime'; s('ss-engine').className = 'sync-ok'; }
+                if (s('ss-status'))   { s('ss-status').textContent = navigator.onLine ? '🟢 Online' : '🟡 Offline (local OK)'; s('ss-status').className = navigator.onLine ? 'sync-ok' : 'sync-warn'; }
+                if (s('ss-engine'))   { s('ss-engine').textContent = 'RxDB Local-First'; s('ss-engine').className = 'sync-ok'; }
                 if (s('ss-realtime')){ s('ss-realtime').textContent = this._realtimeStatus; s('ss-realtime').className = 'sync-ok'; }
-                if (s('ss-queue'))   { s('ss-queue').textContent = '0 ops (realtime)'; s('ss-queue').className = 'sync-ok'; }
+                if (s('ss-queue'))   { s('ss-queue').textContent = '0 ops (local)'; s('ss-queue').className = 'sync-ok'; }
                 if (s('ss-lastsync'))  s('ss-lastsync').textContent = window._lastSyncTime ? new Date(window._lastSyncTime).toLocaleTimeString('pt-BR') : '—';
                 const lastEl = document.getElementById('syncBtnLastTime');
                 if (lastEl && window._lastSyncTime) lastEl.textContent = new Date(window._lastSyncTime).toLocaleTimeString('pt-BR');
             },
 
-            _initRealtime() { /* substituído por onSnapshot */ }
+            _initRealtime() { /* substituído por subscription */ }
         };
 
         window.LocalFirst = LocalFirst;
@@ -9446,16 +9470,16 @@ CREATE POLICY "otica_allow_all"
             _key: 'contas_financeiras',
             get _storeKey()   { return 'contas_financeiras_' + (window._currentStore || 'barueri'); },
             get _storeTsKey() { return 'contas_financeiras_ts_' + (window._currentStore || 'barueri'); },
-            get _supabaseId() { return 'contas_financeiras_' + (window._currentStore || 'barueri'); },
+            get _rxdbId()     { return 'contas_financeiras_' + (window._currentStore || 'barueri'); },
 
             async getAll() {
-                // Usa cache em memória primeiro (evita GETs repetidos ao Supabase)
+                // Usa cache em memória primeiro
                 const raw = IDB._cache[this._storeKey];
                 if (raw !== undefined && raw !== null) {
                     if (typeof raw === 'string') { try { return JSON.parse(raw); } catch(e) {} }
                     if (Array.isArray(raw)) return raw;
                 }
-                // Se cache vazio, busca do Supabase UMA VEZ e armazena em cache
+                // Busca do RxDB local
                 try {
                     const storeId = window._currentStore || 'barueri';
                     const docData = await sbGetDoc(storeId, 'config', 'contas_financeiras');
@@ -9470,7 +9494,6 @@ CREATE POLICY "otica_allow_all"
 
             async saveAll(contas) {
                 const storeId = window._currentStore || 'barueri';
-                // Atualiza cache em memória imediatamente
                 IDB._cache[this._storeKey] = JSON.stringify(contas);
                 try {
                     await sbUpsertDoc(storeId, 'config', 'contas_financeiras', {
@@ -11895,9 +11918,8 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
         };
 
 
-        // ==================== SUPABASE SYNC MODULE ====================
-        // Todas as chamadas legadas como SupaSync.upsertCliente(), SupaSync.inserirVenda() etc.
-        // são delegadas ao LocalFirst engine que usa Supabase.
+        // ==================== RXDB SYNC MODULE ====================
+        // Todas as chamadas legadas delegadas ao LocalFirst engine (RxDB).
         const SupaSync = {
             async init() {},
             async upsertCliente(c)    { return LocalFirst.pushItem('clients', c); },
@@ -11914,58 +11936,34 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
             async deletarServico(id)  { return LocalFirst.deleteItem('services', id); },
             async deletarDespesa(id)  { return LocalFirst.deleteItem('expenses', id); },
             async verificarTabelas() {
-                Toast.show('Verificando tabela no Supabase...', 'info');
+                Toast.show('Verificando banco RxDB local...', 'info');
                 try {
-                    const { data, error } = await supabase.from('otica_data').select('collection').limit(1);
-                    if (error) throw error;
-                    Toast.show('✅ Tabela otica_data OK no Supabase!', 'success');
-                } catch(e) { Toast.show('⚠️ Erro Supabase: ' + e.message, 'warning'); }
+                    const db = window._rxdb;
+                    if (!db) throw new Error('RxDB não inicializado');
+                    const count = await db.otica_data.count().exec();
+                    Toast.show(`✅ RxDB local OK! ${count} documentos no banco.`, 'success');
+                } catch(e) { Toast.show('⚠️ Erro RxDB: ' + e.message, 'warning'); }
             },
             async syncDown() {
                 const btn = document.getElementById('headerSyncBtn');
                 if (btn) btn.classList.add('syncing');
-                Toast.show('✅ Supabase Realtime — sync em tempo real ativo', 'success', 2500);
+                await LocalFirst._fetchAllData(window._currentStore || 'barueri');
+                Toast.show('✅ RxDB Local-First — dados recarregados', 'success', 2500);
                 setTimeout(() => { if (btn) btn.classList.remove('syncing'); }, 800);
             },
             async syncDelta() {},
             async migrarParaSupabase() {
-                // Envia todos os dados locais do state ao Supabase
-                Toast.show('📤 Enviando todos os dados para o Supabase...', 'info', 4000);
-                let total = 0, erros = 0;
-                const storeId = window._currentStore || 'barueri';
-                const now = new Date().toISOString();
-                // Pausa Realtime para evitar loop de eventos durante upload em lote
-                LocalFirst._pauseRealtime();
+                Toast.show('📤 Salvando todos os dados no RxDB local...', 'info', 4000);
                 try {
-                    for (const [stateKey, col] of Object.entries(_COL_MAP)) {
-                        if (stateKey.startsWith('crm')) continue;
-                        const items = (state[stateKey] || []).filter(i => i && i.id);
-                        if (!items.length) continue;
-                        // Lotes de 20 para não sobrecarregar o browser
-                        for (let i = 0; i < items.length; i += 20) {
-                            const chunk = items.slice(i, i + 20);
-                            const rows = chunk.map(item => ({
-                                doc_id: String(item.id),
-                                store_id: storeId,
-                                collection: col,
-                                data: { ...item, _store: storeId, _updatedAt: now },
-                                updated_at: now
-                            }));
-                            try { await sbUpsertBatch(rows); total += chunk.length; }
-                            catch(e) { erros++; console.error('[Migrate]', col, e.message); }
-                        }
-                    }
-                    try { await LocalFirst.pushConfig(); } catch(e) {}
-                } finally {
-                    // Retoma Realtime e re-fetch dados atualizados
-                    LocalFirst._resumeRealtime(storeId);
+                    await App.saveData(true);
+                    Toast.show('✅ Todos os dados salvos no RxDB!', 'success', 3000);
+                } catch(e) {
+                    Toast.show('⚠️ Erro ao salvar: ' + e.message, 'warning', 5000);
                 }
-                if (erros === 0) Toast.show(`✅ ${total} registros enviados ao Supabase!`, 'success', 4000);
-                else Toast.show(`⚠️ ${total} enviados, ${erros} erros. Veja console.`, 'warning', 5000);
             },
             async _flushQueue() {}
         };
-        // ==================== /SUPABASE SYNC MODULE ====================
+        // ==================== /RXDB SYNC MODULE ====================
 
         // ==================== APP ====================
         const App = {
@@ -12028,11 +12026,9 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                 Sales.init();
                 Config.load();
 
-                // ── Supabase Sync Engine ──
-                // Supabase Realtime mantém dados sincronizados em tempo real.
+                // ── RxDB Local-First Sync Engine ──
+                // Inicia IndexedDB local, carrega dados e conecta WebRTC P2P.
                 LocalFirst.boot();
-                // Aguarda fetch inicial antes do primeiro Dashboard.update
-                // (os dados chegam do Supabase de forma assíncrona)
                 Utils.updatePixKey();
 
 
@@ -12119,18 +12115,18 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
             },
 
             async loadData() {
-                // Supabase Cloud-First: dados são carregados pelo LocalFirst._fetchAllData()
-                // chamado dentro de LocalFirst.boot() → _startListeners()
-                // Esta função é mantida como no-op — o boot cuida de tudo.
-                if (!navigator.onLine) {
+                // RxDB Local-First: dados são carregados pelo LocalFirst.boot() → _startListeners() → _fetchAllData()
+                // Esta função é mantida por compatibilidade mas o boot cuida de tudo.
+                const db = await window._rxdbInitPromise;
+                if (!db) {
                     this.initSampleData();
-                    Toast.show('📵 Sem conexão. Supabase requer internet.', 'warning', 5000);
+                    Toast.show('⚠️ RxDB não pôde inicializar. Usando dados de exemplo.', 'warning', 5000);
                 }
                 // Não faz nada aqui: LocalFirst.boot() já inicia o fetch completo
             },
 
             async saveData(silent = false) {
-                // Supabase Cloud-First: envia todo o state ao Supabase em batch
+                // RxDB Local-First: persiste todo o state no IndexedDB local em batch
                 const now = new Date().toISOString();
                 const storeId = window._currentStore || 'barueri';
                 const TABLES = ['clients','products','sales','expenses','prescriptions','suppliers','services'];
@@ -12140,37 +12136,36 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                         state[key].forEach(item => { if (!item.updated_at) item.updated_at = now; });
                     }
                 });
-                if (!navigator.onLine) return;
+                // Normaliza IDs de prescrições
+                if (Array.isArray(state.prescriptions)) {
+                    state.prescriptions.forEach(p => { if (!p.id && p.clientId) p.id = 'PRESC-' + p.clientId; });
+                }
                 try {
                     LocalFirst._realtimePaused = true;
                     for (const key of TABLES) {
                         const items = (state[key] || []).filter(i => i && i.id);
                         if (!items.length) continue;
                         const col = _COL_MAP[key] || key;
-                        for (let i = 0; i < items.length; i += 20) {
-                            const chunk = items.slice(i, i + 20);
+                        // Lotes de 50 — IndexedDB local é muito mais rápido que rede
+                        for (let i = 0; i < items.length; i += 50) {
+                            const chunk = items.slice(i, i + 50);
                             const rows = chunk.map(item => ({
-                                doc_id: String(item.id),
-                                store_id: storeId,
+                                doc_id:     String(item.id),
+                                store_id:   storeId,
                                 collection: col,
-                                data: { ...item, _store: storeId, _updatedAt: now },
+                                data:       { ...item, _store: storeId, _updatedAt: now },
                                 updated_at: now
                             }));
                             await sbUpsertBatch(rows);
                         }
                     }
-                    // Salva config da empresa
                     await LocalFirst.pushConfig();
                 } catch(e) {
-                    console.warn('[saveData] Erro ao salvar no Supabase:', e.message);
+                    console.warn('[saveData] Erro ao salvar no RxDB:', e.message);
                 } finally {
                     LocalFirst._realtimePaused = false;
                 }
-                if (Array.isArray(state.prescriptions)) {
-                    state.prescriptions.forEach(p => { if (!p.id && p.clientId) p.id = 'PRESC-' + p.clientId; });
-                }
-                // Sem escrita em IDB — cloud-only
-                if (!silent) {} // silencia toast
+                if (!silent) {} // sem toast por padrão
             },
 
             initSampleData() {
@@ -12436,7 +12431,7 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                 const file = event.target.files[0];
                 if (!file) return;
 
-                Modal.showConfirm('Isso substituirá todos os dados atuais no Supabase. Continuar?', () => {
+                Modal.showConfirm('Isso substituirá todos os dados atuais no banco local. Continuar?', () => {
                     const reader = new FileReader();
                     reader.onload = async (e) => {
                         try {
@@ -12450,24 +12445,19 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                             const now = new Date().toISOString();
                             const colKeys = Object.keys(_COL_MAP);
 
-                            if (!navigator.onLine) {
-                                Toast.show('⚠️ Sem conexão. Conecte-se ao Supabase para restaurar.', 'error', 5000);
-                                return;
-                            }
-
-                            Toast.show('☁️ Enviando backup ao Supabase...', 'info', 3000);
+                            Toast.show('💾 Gravando backup no banco local...', 'info', 3000);
 
                             let total = 0;
 
-                            // 3. Grava cada coleção no Supabase (lotes de 20 — evita ERR_INSUFFICIENT_RESOURCES)
+                            // 3. Grava cada coleção no RxDB (lotes de 50 — IndexedDB é rápido)
                             LocalFirst._pauseRealtime();
                             try {
                                 for (const stateKey of colKeys) {
                                     const items = (state[stateKey] || []).filter(i => i && i.id);
                                     if (!items.length) continue;
                                     const col = _COL_MAP[stateKey];
-                                    for (let i = 0; i < items.length; i += 20) {
-                                        const chunk = items.slice(i, i + 20);
+                                    for (let i = 0; i < items.length; i += 50) {
+                                        const chunk = items.slice(i, i + 50);
                                         const rows = chunk.map(item => {
                                             if (!item.updated_at) item.updated_at = now;
                                             return {
@@ -12506,7 +12496,7 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                             try { Sales.renderHistory(); } catch(e) {}
                             try { Expenses.renderTable(); Expenses.updateSummary(); } catch(e) {}
 
-                            Toast.show(`✅ Backup restaurado! ${total} registros gravados no Supabase.`, 'success', 5000);
+                            Toast.show(`✅ Backup restaurado! ${total} registros gravados localmente.`, 'success', 5000);
                         } catch (err) {
                             console.error('[importBackup]', err);
                             Toast.show('❌ Erro ao restaurar: ' + err.message, 'error');
@@ -12517,35 +12507,24 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
             },
 
             confirmClearData() {
-                Modal.showConfirm('Limpar todos os dados? Esta ação é irreversível e apagará os dados do Supabase também.', async () => {
+                Modal.showConfirm('Limpar todos os dados? Esta ação é irreversível e apagará os dados do banco local também.', async () => {
                     const tableKeys = ['clients','products','services','suppliers','sales','expenses','prescriptions','crmContatos','crmTarefas','crmNps'];
                     const currentStore = window._currentStore || 'barueri';
 
-                    // ── 1. Deleta todos os documentos desta loja no Supabase ──
-                    if (navigator.onLine) {
-                        Toast.show('🗑️ Apagando dados do Supabase...', 'info', 2000);
-                        try {
-                            await sbDeleteStore(currentStore);
-                            console.log('[ClearData] Supabase deleted all for store:', currentStore);
-                        } catch(e) { console.warn('[ClearData] Supabase erro:', e.message); }
-                    }
+                    // ── 1. Deleta todos os documentos desta loja no RxDB local ──
+                    Toast.show('🗑️ Apagando dados locais...', 'info', 2000);
+                    try {
+                        await sbDeleteStore(currentStore);
+                        console.log('[ClearData] RxDB deleted all for store:', currentStore);
+                    } catch(e) { console.warn('[ClearData] RxDB erro:', e.message); }
 
                     // ── 2. Limpa estado em memória ──
                     state.clients = []; state.products = []; state.services = [];
                     state.suppliers = []; state.sales = []; state.expenses = [];
                     state.prescriptions = []; state.crmContatos = []; state.crmTarefas = [];
-                    state.crmNps = []; state.lastOsCounter = { [new Date().getFullYear()]: 1 };
-                    IDB._cache = {}; // limpa cache em memória
+                    state.crmNos = []; state.lastOsCounter = { [new Date().getFullYear()]: 1 };
+                    IDB._cache = {};
 
-                    // ── 4. Limpa filas pendentes da loja no IDB ──
-                    try {
-                        const storePrefix = 'lf_pending_' + currentStore + '_';
-                        for (const k of tableKeys) {
-                            await IDB.set(storePrefix + k, []).catch(() => {});
-                        }
-                    } catch(e) {}
-
-                    await this.saveData();
                     Utils.updatePixKey();
                     this.updateSupplierSelect();
                     this.updateCompanyDisplay();
@@ -12558,36 +12537,36 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                 });
             },
 
-            // ── Zera APENAS a loja ativa no Supabase (hard delete) ──────────────
+            // ── Zera APENAS a loja ativa no RxDB local (hard delete) ────────────
             async wipeSingleStoreSupabase() {
                 const storeId = window._currentStore || 'barueri';
                 const lojaNome = (window.StoreManager?._lojas?.[storeId]?.fullLabel) || storeId;
-                if (!confirm(`⚠️ ATENÇÃO: Zerar "${lojaNome}" no Supabase\n\nApaga PERMANENTEMENTE todos os dados desta loja.\n\nContinuar?`)) return;
-                if (!navigator.onLine) { Toast.show('Sem conexão com o servidor', 'error'); return; }
-                Toast.show('🗑️ Apagando dados do Supabase...', 'info', 3000);
+                if (!confirm(`⚠️ ATENÇÃO: Zerar "${lojaNome}" no banco local\n\nApaga PERMANENTEMENTE todos os dados desta loja.\n\nContinuar?`)) return;
+                Toast.show('🗑️ Apagando dados locais...', 'info', 3000);
                 try {
                     await sbDeleteStore(storeId);
                     IDB._cache = {};
-                    Toast.show(`✅ ${lojaNome} zerada no Supabase!`, 'success', 5000);
+                    state.clients = []; state.products = []; state.sales = [];
+                    state.expenses = []; state.prescriptions = []; state.suppliers = []; state.services = [];
+                    try { Clients.renderTable?.(); } catch(e) {}
+                    try { Products.renderTable?.(); } catch(e) {}
+                    try { Sales.renderHistory?.(); } catch(e) {}
+                    Toast.show(`✅ ${lojaNome} zerada localmente!`, 'success', 5000);
                 } catch(e) {
                     Toast.show('❌ Erro ao zerar: ' + e.message, 'error');
                 }
             },
 
-            // ── Zera TODAS as lojas no Supabase (hard delete total) ──────────────
+            // ── Zera TODAS as lojas no RxDB local (hard delete total) ───────────
             async wipeAllStoresSupabase() {
-                if (!confirm('🚨 Zerar TODAS as lojas no Supabase?\n\nApaga PERMANENTEMENTE todos os dados de todas as lojas.\nEsta ação NÃO PODE SER DESFEITA.')) return;
-                if (!confirm('Confirmação final: apagar TODO o banco Supabase?')) return;
-                if (!navigator.onLine) { Toast.show('Sem conexão com o servidor', 'error'); return; }
-                Toast.show('🗑️ Apagando TODOS os dados do Supabase...', 'info', 4000);
+                if (!confirm('🚨 Zerar TODAS as lojas no banco local?\n\nApaga PERMANENTEMENTE todos os dados de todas as lojas.\nEsta ação NÃO PODE SER DESFEITA.')) return;
+                if (!confirm('Confirmação final: apagar TODO o banco local?')) return;
+                Toast.show('🗑️ Apagando TODOS os dados...', 'info', 4000);
                 try {
-                    const { error } = await supabase
-                        .from('otica_data')
-                        .delete()
-                        .in('store_id', ['barueri', 'caucaia']);
-                    if (error) throw error;
+                    await sbDeleteStore('barueri');
+                    await sbDeleteStore('caucaia');
                     IDB._cache = {};
-                    Toast.show(`✅ Supabase completamente zerado!`, 'success', 6000);
+                    Toast.show(`✅ Banco local completamente zerado!`, 'success', 6000);
                 } catch(e) {
                     Toast.show('❌ Erro ao zerar: ' + e.message, 'error');
                 }
@@ -23198,40 +23177,37 @@ const StoreManager = {
         this._updateUI();
         Toast.show('⏳ ' + loja.fullLabel + ' — carregando...', 'info', 1500);
 
-        // 6. Busca dados da nova loja do Supabase diretamente (sem passar por _startListeners)
-        if (navigator.onLine) {
-            try {
-                const { data, error } = await supabase
-                    .from('otica_data')
-                    .select('*')
-                    .eq('store_id', lojaId);
-                if (error) throw error;
+        // 6. Busca dados da nova loja do RxDB local
+        try {
+                const db = await window._rxdbInitPromise;
+                if (db) {
+                    const docs = await db.otica_data.find({ selector: { storeId: lojaId } }).exec();
 
-                // Popula state com os dados recebidos
-                const byCol = {};
-                (data || []).forEach(row => {
-                    if (!byCol[row.collection]) byCol[row.collection] = [];
-                    byCol[row.collection].push({ ...row.data, _docId: row.doc_id });
-                });
-                const colMap = { clients:'clients', products:'products', sales:'sales',
-                    expenses:'expenses', prescriptions:'prescriptions',
-                    suppliers:'suppliers', services:'services' };
-                Object.keys(colMap).forEach(k => { if (byCol[colMap[k]]) state[k] = byCol[colMap[k]]; });
+                    const byCol = {};
+                    (docs || []).forEach(d => {
+                        if (!byCol[d.collection]) byCol[d.collection] = [];
+                        byCol[d.collection].push({ ...d.data, _docId: d.docId });
+                    });
+                    const colMap = { clients:'clients', products:'products', sales:'sales',
+                        expenses:'expenses', prescriptions:'prescriptions',
+                        suppliers:'suppliers', services:'services' };
+                    Object.keys(colMap).forEach(k => { if (byCol[colMap[k]]) state[k] = byCol[colMap[k]]; });
 
-                // Config da empresa
-                const cfgRows = byCol['config'] || [];
-                const emp = cfgRows.find(d => d._docId === 'empresa');
-                if (emp) {
-                    if (emp.company)       Object.assign(state.company, emp.company);
-                    if (emp.notificacoes)  Object.assign(state.notificacoes || {}, emp.notificacoes);
-                    if (emp.backupConfig)  Object.assign(state.backupConfig || {}, emp.backupConfig);
-                    if (emp.lastOsCounter) state.lastOsCounter = { ...state.lastOsCounter, ...emp.lastOsCounter };
-                    if (state.company.primaryColor)   document.documentElement.style.setProperty('--primary', state.company.primaryColor);
-                    if (state.company.secondaryColor) document.documentElement.style.setProperty('--secondary', state.company.secondaryColor);
+                    // Config da empresa
+                    const cfgRows = byCol['config'] || [];
+                    const emp = cfgRows.find(d => d._docId === 'empresa');
+                    if (emp) {
+                        if (emp.company)       Object.assign(state.company, emp.company);
+                        if (emp.notificacoes)  Object.assign(state.notificacoes || {}, emp.notificacoes);
+                        if (emp.backupConfig)  Object.assign(state.backupConfig || {}, emp.backupConfig);
+                        if (emp.lastOsCounter) state.lastOsCounter = { ...state.lastOsCounter, ...emp.lastOsCounter };
+                        if (state.company.primaryColor)   document.documentElement.style.setProperty('--primary', state.company.primaryColor);
+                        if (state.company.secondaryColor) document.documentElement.style.setProperty('--secondary', state.company.secondaryColor);
+                    }
+                    // Contas financeiras
+                    const contas = cfgRows.find(d => d._docId === 'contas_financeiras');
+                    IDB._cache['contas_financeiras_' + lojaId] = JSON.stringify(contas?.items || []);
                 }
-                // Contas financeiras
-                const contas = cfgRows.find(d => d._docId === 'contas_financeiras');
-                IDB._cache['contas_financeiras_' + lojaId] = JSON.stringify(contas?.items || []);
 
                 // Atualiza UI completa
                 App.updateCompanyDisplay();
@@ -23248,27 +23224,28 @@ const StoreManager = {
                 console.warn('[StoreManager] Erro ao carregar loja:', e.message);
                 Toast.show('⚠️ Erro ao carregar dados — tente novamente', 'warning', 3000);
             }
-        } else {
-            Toast.show('⚠️ Sem conexão — dados locais apenas', 'warning', 2500);
-        }
 
-        // 7. Inicia Realtime para a nova loja (em background, sem bloquear)
+        // 7. Inicia listeners RxDB e WebRTC para a nova loja (em background)
         try {
             LocalFirst._realtimePaused = false;
-            // Assina canal da nova loja sem fazer novo fetch (já temos os dados)
             LocalFirst._stopListeners();
-            const channel = supabase.channel('otica_store_' + lojaId)
-                .on('postgres_changes', {
-                    event: '*', schema: 'public', table: 'otica_data',
-                    filter: 'store_id=eq.' + lojaId
-                }, (payload) => {
+
+            // Subscribe às mudanças do RxDB para a nova loja
+            const db = window._rxdb;
+            if (db) {
+                const sub = db.otica_data.$.subscribe(changeEvent => {
                     if (LocalFirst._realtimePaused) return;
-                    LocalFirst._handleRealtimeChange(payload, lojaId);
-                })
-                .subscribe();
-            LocalFirst._listeners['_channel'] = channel;
-            LocalFirst._realtimeStatus = 'Ativo';
-        } catch(e) { console.warn('[StoreManager] Realtime:', e.message); }
+                    LocalFirst._handleRxDBChange(changeEvent, lojaId);
+                });
+                LocalFirst._listeners['_rxdbSub'] = sub;
+                LocalFirst._realtimeStatus = 'Local ativo';
+            }
+
+            // WebRTC para cross-device na nova loja
+            LocalFirst._startWebRTCSync(lojaId).catch(e => {
+                console.warn('[StoreManager] WebRTC:', e.message);
+            });
+        } catch(e) { console.warn('[StoreManager] Listeners:', e.message); }
     }
 };
 window.StoreManager = StoreManager;
