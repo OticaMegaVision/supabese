@@ -48,11 +48,20 @@
     <!-- Gere os ícones abrindo generate_icons.html no navegador -->
     <!-- ===== /PWA META TAGS ===== -->
 
-    <!-- ===== RXDB LOCAL-FIRST (Dexie.js + BroadcastChannel + Gun.js P2P) ===== -->
-    <script src="https://cdn.jsdelivr.net/npm/dexie@4/dist/dexie.umd.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/gun/gun.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/gun/sea.js"></script>
-    <!-- ===== /RXDB LOCAL-FIRST ===== -->
+    <!-- ===== RXDB LOCAL-FIRST ENGINE ===== -->
+    <!-- RxDB via CDN (UMD build) -->
+    <script src="https://cdn.jsdelivr.net/npm/rxdb@15/dist/rxdb.umd.js"></script>
+    <script>
+    // ══════════════════════════════════════════════════════════════════
+    //  RxDB LOCAL-FIRST + BroadcastChannel SYNC
+    //  Filosofia: Local-First. IndexedDB é a fonte da verdade.
+    //  BroadcastChannel = sincronização em tempo real entre
+    //  abas, janelas e PWAs no mesmo dispositivo/navegador.
+    //  Para múltiplos dispositivos na mesma rede: usa CouchDB/PouchDB
+    //  replication (opcional) ou export/import manual.
+    // ══════════════════════════════════════════════════════════════════
+    </script>
+    <!-- ===== /RXDB LOCAL-FIRST ENGINE ===== -->
 
 
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -4734,8 +4743,8 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                         <button class="btn btn-sm nfe-hide-xs" style="background:#3ecf8e;color:#000;font-weight:700;" onclick="SupaSync.syncDown()" title="Sincronizar com a nuvem" id="headerSyncBtn">
                             <i class="fas fa-cloud-arrow-down" id="headerSyncIcon"></i> <span class="nfe-hide-xs">Sync</span>
                         </button>
-                        <button class="btn btn-sm nfe-hide-xs" style="background:#3b82f6;color:#fff;font-weight:700;" onclick="if(confirm('Re-gravar todos os dados no IndexedDB?'))SupaSync.migrarParaSupabase()" title="Re-gravar dados no IndexedDB local">
-                            &#8679; <span class="nfe-hide-xs">Migrar</span>
+                        <button class="btn btn-sm nfe-hide-xs" style="background:#3b82f6;color:#fff;font-weight:700;" onclick="if(confirm('Salvar todos os dados localmente?'))SupaSync.migrarParaLocal()" title="Salvar todos os dados no armazenamento local">
+                            &#8679; <span class="nfe-hide-xs">Salvar Local</span>
                         </button>
                     </div>
 
@@ -7314,24 +7323,24 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                             <input type="file" id="importBackupConfig" class="d-none" accept=".json" onchange="App.importBackup(event)">
                         </div>
 
-                        <!-- SYNC LOCAL — RxDB/Dexie -->
+                        <!-- SYNC RÁPIDO -->
                         <div style="background: linear-gradient(135deg, #1e1e2e, #2a2a3e); border-radius: 12px; padding: 1.25rem; margin-bottom: 1.5rem; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:1rem;">
                             <div style="display:flex; align-items:center; gap:0.75rem;">
                                 <div id="syncBtnStatusDot" style="width:12px;height:12px;border-radius:50%;background:#a6e3a1;box-shadow:0 0 6px #a6e3a1;flex-shrink:0;"></div>
                                 <div>
-                                    <div style="color:white;font-weight:700;font-size:0.95rem;">💾 RxDB Local-First + 🔄 <span id="gunSyncLabel">Gun.js P2P</span></div>
+                                    <div style="color:white;font-weight:700;font-size:0.95rem;">⚡ Local-First — BroadcastChannel Sync</div>
                                     <div id="syncBtnStatusText" style="color:#a6adc8;font-size:0.78rem;margin-top:2px;">Último sync: <span id="syncBtnLastTime">—</span></div>
                                 </div>
                             </div>
                             <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
                                 <button class="btn btn-sm" style="background:#3ecf8e;color:#000;font-weight:700;" onclick="SupaSync.syncDown(); const t=new Date().toLocaleTimeString('pt-BR'); document.getElementById('syncBtnLastTime').textContent=t;">
-                                    <i class="fas fa-sync"></i> Recarregar dados
+                                    <i class="fas fa-sync"></i> Recarregar Local
                                 </button>
-                                <button class="btn btn-sm" style="background:#ff6b00;color:#fff;font-weight:700;" title="Re-grava todos os dados no IndexedDB local" onclick="
-                                    if (!confirm('⚠️ Re-gravar todos os dados no IndexedDB?\n\nIsso vai reescrever todos os registros locais.\n\nUse quando houver divergência entre dispositivos.\n\nContinuar?')) return;
-                                    SupaSync.migrarParaSupabase();
+                                <button class="btn btn-sm" style="background:#ff6b00;color:#fff;font-weight:700;" title="Regrava todos os dados no IndexedDB local" onclick="
+                                    if (!confirm('⚠️ Regravar todos os dados localmente?\n\nIsso vai reescrever todos os registros no IndexedDB.\n\nUse quando houver divergência entre dispositivos.\n\nContinuar?')) return;
+                                    SupaSync.migrarParaLocal();
                                 ">
-                                    <i class="fas fa-database"></i> Re-gravar IndexedDB
+                                    <i class="fas fa-save"></i> Regravar Local
                                 </button>
                             </div>
                         </div>
@@ -7342,14 +7351,14 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                                 <div style="width:38px;height:38px;border-radius:50%;background:rgba(220,53,69,0.2);display:flex;align-items:center;justify-content:center;font-size:1.1rem;flex-shrink:0;">🗑️</div>
                                 <div>
                                     <div style="color:#f8d7da;font-weight:700;font-size:0.95rem;">Zerar Dados Locais</div>
-                                    <div style="color:#f1aeb5;font-size:0.76rem;margin-top:1px;">Remove todos os documentos da loja ativa do IndexedDB — permite começar do zero</div>
+                                    <div style="color:#f1aeb5;font-size:0.76rem;margin-top:1px;">Remove todos os documentos da loja ativa do IndexedDB local — permite começar do zero</div>
                                 </div>
                             </div>
                             <div style="display:flex;gap:0.6rem;flex-wrap:wrap;">
-                                <button class="btn btn-sm" style="background:#dc3545;color:#fff;font-weight:700;font-size:0.8rem;" onclick="App.wipeSingleStoreSupabase()">
+                                <button class="btn btn-sm" style="background:#dc3545;color:#fff;font-weight:700;font-size:0.8rem;" onclick="App.wipeSingleStoreLocal()">
                                     <i class="fas fa-trash-alt"></i> Zerar loja atual (<span id="wipeLojaNome">—</span>) localmente
                                 </button>
-                                <button class="btn btn-sm" style="background:#6c1c1c;color:#f8d7da;font-weight:700;font-size:0.8rem;border:1px solid rgba(220,53,69,0.5);" onclick="App.wipeAllStoresSupabase()">
+                                <button class="btn btn-sm" style="background:#6c1c1c;color:#f8d7da;font-weight:700;font-size:0.8rem;border:1px solid rgba(220,53,69,0.5);" onclick="App.wipeAllStoresLocal()">
                                     <i class="fas fa-database"></i> Zerar TODAS as lojas localmente
                                 </button>
                             </div>
@@ -7495,94 +7504,46 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                             </div>
                         </div>
 
-                        <!-- STATUS RxDB LOCAL-FIRST -->
+                        <!-- INFO LOCAL-FIRST -->
                         <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:12px;padding:1.5rem;margin-bottom:1.5rem;">
                             <h4 style="color:#166534;margin-bottom:0.75rem;display:flex;align-items:center;gap:0.5rem;">
-                                <i class="fas fa-database" style="color:#3ecf8e;"></i> RxDB Local-First — IndexedDB
+                                <i class="fas fa-database" style="color:#3ecf8e;"></i> Armazenamento Local — IndexedDB
                             </h4>
                             <p style="color:#166534;font-size:0.85rem;margin-bottom:1rem;">
-                                O sistema usa <strong>IndexedDB</strong> (via Dexie.js) como banco de dados local.
-                                Os dados são armazenados <strong>diretamente no navegador</strong>, funcionam offline e sincronizam entre abas abertas via <strong>BroadcastChannel</strong>.
+                                O sistema usa <strong>IndexedDB</strong> como banco de dados local.
+                                Todos os dados ficam no seu navegador/dispositivo e sincronizam
+                                em tempo real entre abas abertas via <strong>BroadcastChannel</strong>.
+                                Funciona 100% offline — sem necessidade de servidor externo.
                             </p>
-                            <div style="background:#1e1e2e;color:#a6e3a1;font-family:monospace;font-size:0.78rem;padding:1rem;border-radius:8px;line-height:1.7;margin-bottom:1rem;">
-  <span style="color:#cba6f7;">Banco:</span>    OticaVisionPro (IndexedDB)<br>
-  <span style="color:#cba6f7;">Tabela:</span>   otica_data<br>
-  <span style="color:#cba6f7;">Índices:</span>  [doc_id+store_id+collection], store_id, collection, updated_at<br>
-  <span style="color:#cba6f7;">Sync:</span>     BroadcastChannel (cross-tab, tempo real)<br>
-  <span style="color:#cba6f7;">Offline:</span>  ✅ Funciona sem internet<br>
-  <span style="color:#cba6f7;">Backup:</span>   Exportar/Importar JSON (botões acima)
-                            </div>
+                            <div style="background:#1e1e2e;color:#a6e3a1;font-family:monospace;font-size:0.78rem;padding:1rem;border-radius:8px;line-height:1.6;margin-bottom:1rem;white-space:pre;" id="localFirstInfo">// ── Como funciona o armazenamento local ──────────────────────
+//
+//  Persistência   → IndexedDB (banco no próprio navegador)
+//  Sync multi-aba → BroadcastChannel 'oticavision_sync'
+//  Offline        → Funciona sem internet
+//
+//  Estrutura de chaves no IndexedDB:
+//    lf_&lt;lojaId&gt;_clients       → lista de clientes
+//    lf_&lt;lojaId&gt;_products      → lista de produtos
+//    lf_&lt;lojaId&gt;_sales         → lista de vendas
+//    lf_&lt;lojaId&gt;_expenses      → lista de despesas
+//    lf_&lt;lojaId&gt;_prescriptions → lista de prescrições
+//    lf_&lt;lojaId&gt;_suppliers     → lista de fornecedores
+//    lf_&lt;lojaId&gt;_services      → lista de serviços
+//    lf_config_&lt;lojaId&gt;        → configurações da empresa
+//
+//  Para sincronizar entre dispositivos diferentes:
+//    Use Exportar Backup → copie o arquivo → Importar Backup
+//    no outro dispositivo.</div>
                             <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
-                                <button class="btn btn-sm" style="background:#3ecf8e;color:#000;font-weight:700;" onclick="SupaSync.syncDown()">
-                                    <i class="fas fa-sync"></i> Recarregar dados
-                                </button>
-                                <button class="btn btn-sm" style="background:#3ecf8e;color:#000;font-weight:700;" onclick="SupaSync.verificarTabelas()">
-                                    <i class="fas fa-database"></i> Verificar IndexedDB
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- SYNC P2P CROSS-DEVICE — GUN.JS -->
-                        <div style="background:linear-gradient(135deg,#0f172a,#1e1b4b);border:1px solid #6366f1;border-radius:12px;padding:1.5rem;margin-bottom:1.5rem;">
-                            <h4 style="color:#c7d2fe;margin-bottom:0.5rem;display:flex;align-items:center;gap:0.5rem;">
-                                <i class="fas fa-network-wired" style="color:#818cf8;"></i> Sync P2P entre Dispositivos — Gun.js
-                            </h4>
-                            <p style="color:#a5b4fc;font-size:0.82rem;margin-bottom:1rem;">
-                                Sincroniza dados em tempo real entre <strong>diferentes navegadores e dispositivos</strong>
-                                sem servidor próprio, usando relay P2P gratuito (gun.eco).
-                                Dispositivos com a mesma <strong>Room Key</strong> ficam sincronizados automaticamente.
-                            </p>
-
-                            <!-- Toggle + Status -->
-                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;margin-bottom:1.1rem;">
-                                <div style="display:flex;align-items:center;gap:0.75rem;">
-                                    <label style="position:relative;display:inline-block;width:52px;height:28px;cursor:pointer;flex-shrink:0;">
-                                        <input type="checkbox" id="gunSyncToggle" style="opacity:0;width:0;height:0;position:absolute;"
-                                            onchange="GunSync.setEnabled(this.checked, window._currentStore||'barueri')">
-                                        <span id="gunToggleBg" style="position:absolute;inset:0;background:#4b5563;border-radius:28px;transition:.3s;"></span>
-                                        <span id="gunToggleKnob" style="position:absolute;left:3px;top:3px;width:22px;height:22px;background:white;border-radius:50%;transition:.3s;box-shadow:0 1px 4px rgba(0,0,0,0.3);"></span>
-                                    </label>
-                                    <div>
-                                        <div style="color:#e2e8f0;font-weight:700;font-size:0.9rem;">Sincronização P2P</div>
-                                        <div id="gunSyncStatus" style="font-size:0.75rem;margin-top:1px;color:#9ca3af;">⚫ Desativado</div>
-                                    </div>
+                                <div style="display:flex;gap:0.4rem;flex-wrap:wrap;width:100%;">
+                                    <button class="btn btn-sm" style="background:#3ecf8e;color:#000;font-weight:700;" onclick="SupaSync.syncDown()">
+                                        <i class="fas fa-sync"></i> Recarregar do IDB
+                                    </button>
+                                    <button class="btn btn-sm" style="background:#3ecf8e;color:#000;font-weight:700;" onclick="SupaSync.verificarTabelas()">
+                                        <i class="fas fa-database"></i> Verificar Armazenamento Local
+                                    </button>
                                 </div>
                             </div>
-
-                            <!-- Room Key -->
-                            <div style="background:rgba(255,255,255,0.05);border-radius:8px;padding:0.85rem;margin-bottom:1rem;">
-                                <div style="color:#94a3b8;font-size:0.75rem;margin-bottom:0.4rem;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;">Room Key</div>
-                                <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
-                                    <code id="gunRoomKeyDisplay" style="background:#1e1e2e;color:#a6e3a1;padding:6px 14px;border-radius:6px;font-size:1rem;font-weight:700;letter-spacing:2px;min-width:100px;text-align:center;">—</code>
-                                    <button class="btn btn-sm" style="background:#4f46e5;color:#fff;font-weight:700;font-size:0.75rem;" onclick="
-                                        const k = document.getElementById('gunRoomKeyDisplay').textContent;
-                                        navigator.clipboard?.writeText(k).then(()=>Toast.show('✅ Room Key copiada!','success',2000)).catch(()=>{});
-                                    "><i class="fas fa-copy"></i> Copiar</button>
-                                    <button class="btn btn-sm" style="background:#0ea5e9;color:#fff;font-weight:700;font-size:0.75rem;" onclick="
-                                        const key = prompt('Cole a Room Key do outro dispositivo (8 letras/números):');
-                                        if (key && key.trim()) GunSync.setRoomKey(key, window._currentStore||'barueri');
-                                    "><i class="fas fa-link"></i> Parear</button>
-                                    <button class="btn btn-sm" style="background:#dc2626;color:#fff;font-weight:700;font-size:0.75rem;" onclick="
-                                        if(confirm('Gerar nova Room Key?\\nIsso vai desparear os outros dispositivos.')) GunSync.resetRoomKey(window._currentStore||'barueri');
-                                    "><i class="fas fa-random"></i> Nova Key</button>
-                                </div>
-                                <p style="color:#64748b;font-size:0.72rem;margin-top:0.6rem;line-height:1.4;">
-                                    Compartilhe a Room Key com outros dispositivos para sincronizá-los. Cada loja tem sua própria chave.
-                                </p>
-                            </div>
-
-                            <!-- Como usar -->
-                            <details style="color:#94a3b8;font-size:0.8rem;">
-                                <summary style="cursor:pointer;color:#a5b4fc;font-weight:600;margin-bottom:0.5rem;">ℹ️ Como parear dispositivos</summary>
-                                <ol style="padding-left:1.2rem;line-height:1.8;margin-top:0.5rem;color:#94a3b8;">
-                                    <li>Ative o Sync P2P neste dispositivo</li>
-                                    <li>Copie a <strong style="color:#a6e3a1;">Room Key</strong></li>
-                                    <li>No outro dispositivo, abra este sistema e vá em Configurações → Sync P2P</li>
-                                    <li>Ative o Sync P2P e clique em <strong style="color:#0ea5e9;">Parear</strong></li>
-                                    <li>Cole a Room Key e confirme</li>
-                                    <li>Os dois dispositivos ficam sincronizados automaticamente ✅</li>
-                                </ol>
-                            </details>
                         </div>
 
                                                 <!-- ÁREA DE RISCO -->
@@ -9021,110 +8982,16 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
         function STORAGE_KEY() { return STORAGE_KEY_BASE + '_' + window._currentStore; }
 
         // ══════════════════════════════════════════════════════════════════════
-        //  RxDB LOCAL-FIRST ENGINE  — Dexie.js (IndexedDB) + BroadcastChannel
-        //  Filosofia: Local-First. Dados salvos no dispositivo (IndexedDB).
-        //  Sincronização em tempo real entre abas via BroadcastChannel.
-        //  Sincronização entre dispositivos via polling / BroadcastChannel.
+        //  LOCAL-FIRST ENGINE — IndexedDB (via localStorage fallback) +
+        //  BroadcastChannel para sync em tempo real entre abas/dispositivos.
+        //
+        //  Arquitetura:
+        //   • Persistência: IndexedDB (chave por loja + coleção)
+        //   • Sync multi-aba: BroadcastChannel 'oticavision_sync'
+        //   • Funciona 100% offline — sem dependência de servidor externo
         // ══════════════════════════════════════════════════════════════════════
 
-        // ── Banco de dados Dexie (IndexedDB) ─────────────────────────────────
-        let _db = null;
-        async function _getDB() {
-            if (_db) return _db;
-            _db = new Dexie('OticaVisionPro');
-            _db.version(1).stores({
-                otica_data: '[doc_id+store_id+collection], store_id, collection, updated_at'
-            });
-            await _db.open();
-            console.log('[LocalFirst] ✅ IndexedDB aberto — OticaVisionPro');
-            return _db;
-        }
-        // Inicializa DB imediatamente
-        _getDB().catch(e => console.error('[LocalFirst] Erro ao abrir DB:', e));
-
-        // ── BroadcastChannel: sync em tempo real entre abas/janelas ──────────
-        const _bcId = Math.random().toString(36).slice(2);
-        const _bc = typeof BroadcastChannel !== 'undefined'
-            ? new BroadcastChannel('otica_rxdb_sync') : null;
-
-        function _broadcastChange(msg) {
-            if (!_bc) return;
-            try { _bc.postMessage({ ...msg, _origin: _bcId, _ts: Date.now() }); } catch(e) {}
-        }
-
-        // ── Helpers CRUD sobre Dexie (IndexedDB) ──
-        async function sbGetCollection(storeId, col) {
-            const db = await _getDB();
-            const rows = await db.otica_data
-                .where('[store_id+collection]').equals([storeId, col]).toArray();
-            return rows.map(r => r.data);
-        }
-        async function sbUpsertDoc(storeId, col, docId, docData) {
-            const db = await _getDB();
-            const row = {
-                doc_id:     String(docId),
-                store_id:   storeId,
-                collection: col,
-                data:       docData,
-                updated_at: new Date().toISOString()
-            };
-            await db.otica_data.put(row);
-            _broadcastChange({ type: 'upsert', storeId, col, docId, docData });
-        }
-        async function sbDeleteDoc(storeId, col, docId) {
-            const db = await _getDB();
-            await db.otica_data
-                .where('[doc_id+store_id+collection]')
-                .equals([String(docId), storeId, col])
-                .delete();
-            _broadcastChange({ type: 'delete', storeId, col, docId });
-        }
-        async function sbGetDoc(storeId, col, docId) {
-            const db = await _getDB();
-            const row = await db.otica_data.get({
-                doc_id: String(docId), store_id: storeId, collection: col
-            });
-            return row ? row.data : null;
-        }
-        async function sbDeleteStore(storeId) {
-            const db = await _getDB();
-            await db.otica_data.where('store_id').equals(storeId).delete();
-            _broadcastChange({ type: 'deleteStore', storeId });
-        }
-        async function sbUpsertBatch(rows) {
-            const db = await _getDB();
-            await db.otica_data.bulkPut(rows);
-            if (rows.length > 0) {
-                _broadcastChange({ type: 'batch', storeId: rows[0]?.store_id });
-            }
-        }
-
-        // ── IDB shim: API legacy mantida — usa memória + IndexedDB real ──────
-        const IDB = {
-            _cache: {},
-            async get(key) {
-                if (this._cache[key] !== undefined) return Promise.resolve(this._cache[key]);
-                try {
-                    const raw = localStorage.getItem('idb_' + key);
-                    if (raw !== null) { this._cache[key] = raw; return raw; }
-                } catch(e) {}
-                return null;
-            },
-            async set(key, value) {
-                this._cache[key] = value;
-                try { localStorage.setItem('idb_' + key, typeof value === 'string' ? value : JSON.stringify(value)); } catch(e) {}
-                return Promise.resolve();
-            },
-            async remove(key) {
-                delete this._cache[key];
-                try { localStorage.removeItem('idb_' + key); } catch(e) {}
-                return Promise.resolve();
-            },
-            async keys() { return Promise.resolve(Object.keys(this._cache)); },
-            observe()    { return { unsubscribe: () => {} }; }
-        };
-
-        // ── Mapa de coleções (mesmo schema) ───────────────────────────────────
+        // ── Mapa de coleções ───────────────────────────────────────────────
         const _COL_MAP = {
             clients: 'clients', products: 'products', sales: 'sales',
             expenses: 'expenses', prescriptions: 'prescriptions',
@@ -9132,33 +8999,125 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
             crmContatos: 'crmContatos', crmTarefas: 'crmTarefas', crmNps: 'crmNps'
         };
 
+        // ── IndexedDB helper (Promise-based, leve, sem deps externas) ─────
+        const IDB = (() => {
+            const DB_NAME = 'oticavision_local';
+            const DB_VER  = 1;
+            const STORE   = 'kv';
+            let _db = null;
+            function _open() {
+                if (_db) return Promise.resolve(_db);
+                return new Promise((res, rej) => {
+                    const req = indexedDB.open(DB_NAME, DB_VER);
+                    req.onupgradeneeded = e => { e.target.result.createObjectStore(STORE); };
+                    req.onsuccess = e => { _db = e.target.result; res(_db); };
+                    req.onerror   = e => rej(e.target.error);
+                });
+            }
+            async function _tx(mode, fn) {
+                const db = await _open();
+                return new Promise((res, rej) => {
+                    const tx = db.transaction(STORE, mode);
+                    const st = tx.objectStore(STORE);
+                    const req = fn(st);
+                    req.onsuccess = () => res(req.result);
+                    req.onerror   = () => rej(req.error);
+                });
+            }
+            // In-memory cache para leituras síncronas rápidas (espelho do IDB)
+            const _cache = {};
+            return {
+                _cache,
+                async get(key) {
+                    if (key in _cache) return _cache[key];
+                    try {
+                        const v = await _tx('readonly', s => s.get(key));
+                        _cache[key] = v ?? null;
+                        return _cache[key];
+                    } catch(e) { return null; }
+                },
+                async set(key, value) {
+                    _cache[key] = value;
+                    try { await _tx('readwrite', s => s.put(value, key)); } catch(e) {}
+                },
+                async remove(key) {
+                    delete _cache[key];
+                    try { await _tx('readwrite', s => s.delete(key)); } catch(e) {}
+                },
+                async keys() {
+                    try {
+                        const db = await _open();
+                        return new Promise((res, rej) => {
+                            const tx = db.transaction(STORE, 'readonly');
+                            const req = tx.objectStore(STORE).getAllKeys();
+                            req.onsuccess = () => res(req.result);
+                            req.onerror   = () => rej(req.error);
+                        });
+                    } catch(e) { return []; }
+                },
+                observe() { return { unsubscribe: () => {} }; }
+            };
+        })();
+
+        // ── BroadcastChannel: sync em tempo real entre abas/PWAs ──────────
+        const _BC_CHANNEL = 'oticavision_sync';
+        let _bc = null;
+        try { _bc = new BroadcastChannel(_BC_CHANNEL); } catch(e) { _bc = { postMessage: () => {}, onmessage: null }; }
+
+        // ── Helpers de persistência local por loja ─────────────────────────
+        function _idbKey(storeId, col) { return 'lf_' + storeId + '_' + col; }
+
+        async function idbLoadCollection(storeId, col) {
+            const raw = await IDB.get(_idbKey(storeId, col));
+            if (!raw) return [];
+            try { return typeof raw === 'string' ? JSON.parse(raw) : (Array.isArray(raw) ? raw : []); }
+            catch(e) { return []; }
+        }
+
+        async function idbSaveCollection(storeId, col, items) {
+            await IDB.set(_idbKey(storeId, col), JSON.stringify(items));
+        }
+
+        async function idbLoadConfig(storeId) {
+            const raw = await IDB.get('lf_config_' + storeId);
+            try { return raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : null; } catch(e) { return null; }
+        }
+
+        async function idbSaveConfig(storeId, cfg) {
+            await IDB.set('lf_config_' + storeId, JSON.stringify(cfg));
+        }
+
+        async function idbDeleteStore(storeId) {
+            const ks = await IDB.keys();
+            for (const k of ks) {
+                if (k.startsWith('lf_' + storeId + '_') || k === 'lf_config_' + storeId) {
+                    await IDB.remove(k);
+                }
+            }
+        }
+
+        // Helpers legados mantidos por compatibilidade
+        async function idbSave(key, value) { return IDB.set(key, value); }
+        async function idbGet(key) { return IDB.get(key); }
+
         // ══════════════════════════════════════════════════════════════════════
-        //  LOCAL-FIRST ENGINE (RxDB-style)
-        //  Persistência: IndexedDB via Dexie.js (funciona offline)
-        //  Sync cross-tab: BroadcastChannel (tempo real entre abas/janelas)
-        //  Sync cross-device: polling periódico + broadcast ao salvar
+        //  LOCAL-FIRST ENGINE — IndexedDB + BroadcastChannel
         // ══════════════════════════════════════════════════════════════════════
         const LocalFirst = {
             _syncing: false,
-            _syncTimer: null,
             _pushingCount: 0,
             get _pushing() { return this._pushingCount > 0; },
             _beginPush() { this._pushingCount++; },
             _endPush()   { if (this._pushingCount > 0) this._pushingCount--; },
             _dirtyKeys: new Set(),
-            _listeners: {},
             _realtimeStatus: 'Local',
-            _realtimeChannel: null,
-            _SYNC_INTERVAL_MS: 30000,
-            get _TS_KEY() { return 'lf_ts_noop'; },
-
+            _realtimePaused: false,
             _TABLES: _COL_MAP,
 
-            // ── Debounce e controle de UI ────────────────────────────────────
+            // ── Debounce UI ────────────────────────────────────────────────
             _dashTimer: null,
             _uiTimer: null,
             _pendingUIKeys: new Set(),
-            _realtimePaused: false,
 
             _scheduleDashUpdate() {
                 if (this._dashTimer) clearTimeout(this._dashTimer);
@@ -9181,7 +9140,7 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                                 case 'products':  Products.renderTable?.(); break;
                                 case 'sales':     Sales.renderHistory?.();  break;
                                 case 'expenses':  Expenses.renderTable?.(); Expenses.updateSummary?.(); break;
-                                case 'suppliers': Suppliers.renderTable?.();break;
+                                case 'suppliers': Suppliers.renderTable?.(); break;
                                 case 'services':  Services.renderTable?.(); break;
                             }
                         } catch(e) {}
@@ -9193,118 +9152,78 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                 }, 250);
             },
 
-            _pauseRealtime() {
-                this._realtimePaused = true;
-                console.log('[LocalFirst] Sync pausado para operação em lote');
-            },
-
+            _pauseRealtime() { this._realtimePaused = true; },
             _resumeRealtime(storeId) {
-                const sid = storeId || window._currentStore || 'barueri';
                 setTimeout(() => {
-                    this._fetchAllData(sid).finally(() => {
-                        this._realtimePaused = false;
-                        console.log('[LocalFirst] Sync retomado após operação em lote');
-                    });
+                    this._realtimePaused = false;
+                    console.log('[LocalFirst] Realtime retomado');
                 }, 300);
             },
 
-            // ── Boot: inicia IndexedDB + BroadcastChannel ────────────────────
-            boot() {
+            // ── Boot: carrega dados locais + inicia BroadcastChannel ───────
+            async boot() {
                 const storeId = window._currentStore || 'barueri';
-                this._startListeners(storeId);
+                await this._fetchAllData(storeId);
 
-                // ── BroadcastChannel: recebe mudanças de outras abas ──────────
-                if (_bc) {
-                    _bc.onmessage = (event) => {
-                        const msg = event.data;
-                        if (!msg || msg._origin === _bcId) return; // ignora próprias mensagens
-                        if (msg.storeId !== (window._currentStore || 'barueri')) return;
-                        if (this._realtimePaused) return;
-                        console.log('[LocalFirst] BroadcastChannel recebido:', msg.type);
-                        if (msg.type === 'upsert') {
-                            this._handleLocalChange({ eventType: 'INSERT', new: { collection: msg.col, doc_id: msg.docId, data: msg.docData }, old: {} }, storeId);
-                        } else if (msg.type === 'delete') {
-                            this._handleLocalChange({ eventType: 'DELETE', new: {}, old: { collection: msg.col, doc_id: msg.docId } }, storeId);
-                        } else if (msg.type === 'batch' || msg.type === 'deleteStore') {
-                            // Re-fetch completo para batch e deleteStore
-                            this._fetchAllData(msg.storeId || storeId);
-                        }
-                    };
-                }
+                // ── BroadcastChannel: recebe mudanças de outras abas ───────
+                _bc.onmessage = (ev) => {
+                    if (this._realtimePaused) return;
+                    const msg = ev.data;
+                    if (!msg || msg.storeId !== storeId) return;
+                    this._handleBCMessage(msg);
+                };
 
-                // ── Reconecta ao voltar ao foco após longa ausência ───────────
+                // ── Foco na aba: re-sync para pegar mudanças recentes ──────
                 let _visLastActive = Date.now();
-                document.addEventListener('visibilitychange', () => {
+                document.addEventListener('visibilitychange', async () => {
                     if (document.hidden) { _visLastActive = Date.now(); return; }
                     const away = Date.now() - _visLastActive;
-                    if (away < 60000) return;
-                    console.log('[LocalFirst] Aba reativada após', Math.round(away/1000), 's — recarregando dados...');
-                    const sid = window._currentStore || 'barueri';
-                    this._realtimePaused = true;
-                    this._fetchAllData(sid).finally(() => {
-                        this._realtimePaused = false;
-                        this._realtimeStatus = 'Local';
-                        this._updatePanel();
-                        Toast.show('🔄 Dados atualizados!', 'success', 2000);
-                    });
+                    if (away < 5000) return;
+                    console.log('[LocalFirst] Aba reativada — re-sincronizando do IDB...');
+                    await this._fetchAllData(storeId);
+                    Toast.show('🔄 Dados atualizados!', 'success', 1500);
                 });
 
-                // ── Online/offline ────────────────────────────────────────────
                 window.addEventListener('online',  () => Toast.show('🌐 Conexão restaurada', 'info', 2000));
-                window.addEventListener('offline', () => Toast.show('📵 Sem conexão — dados locais disponíveis', 'info', 3000));
+                window.addEventListener('offline', () => Toast.show('📴 Offline — dados salvos localmente', 'info', 2000));
 
-                console.log('[LocalFirst] ✅ Boot completo — Local-First ativo para loja:', storeId);
-                // Inicia sync P2P Gun.js
-                setTimeout(() => { try { if (window.GunSync) GunSync.boot(storeId); } catch(e) {} }, 800);
+                console.log('[LocalFirst] Boot completo — IDB local-first ativo para loja:', storeId);
             },
 
-            // ── Carrega todos os dados do IndexedDB para o state ─────────────
-            _startListeners(storeId) {
-                this._realtimePaused = true;
-                this._fetchAllData(storeId).finally(() => {
-                    this._realtimePaused = false;
-                });
-                this._realtimeStatus = 'Carregando...';
-                window._lastSyncTime = new Date().toISOString();
-            },
-
+            // ── Carrega todas as coleções do IDB para o state ─────────────
             async _fetchAllData(storeId) {
                 try {
-                    const db = await _getDB();
-                    const rows = await db.otica_data.where('store_id').equals(storeId).toArray();
-                    const byCol = {};
-                    rows.forEach(row => {
-                        if (!byCol[row.collection]) byCol[row.collection] = [];
-                        byCol[row.collection].push({ ...row.data, _docId: row.doc_id });
-                    });
-                    // Atualiza state todo de uma vez
-                    Object.keys(_COL_MAP).forEach(stateKey => {
+                    for (const stateKey of Object.keys(_COL_MAP)) {
                         const col = _COL_MAP[stateKey];
-                        if (byCol[col]) { state[stateKey] = byCol[col]; this._pendingUIKeys.add(stateKey); }
-                    });
-                    // Carrega config da empresa
-                    const configRows = (byCol['config'] || []);
-                    const empresa = configRows.find(d => d._docId === 'empresa');
-                    if (empresa) {
-                        if (empresa.company)       Object.assign(state.company, empresa.company);
-                        if (empresa.notificacoes)  Object.assign(state.notificacoes, empresa.notificacoes);
-                        if (empresa.wppMensagens)  Object.assign(state.wppMensagens, empresa.wppMensagens);
-                        if (empresa.backupConfig)  Object.assign(state.backupConfig, empresa.backupConfig);
-                        if (empresa.lastOsCounter) state.lastOsCounter = { ...state.lastOsCounter, ...empresa.lastOsCounter };
+                        const items = await idbLoadCollection(storeId, col);
+                        state[stateKey] = items;
+                        this._pendingUIKeys.add(stateKey);
+                    }
+                    const cfg = await idbLoadConfig(storeId);
+                    if (cfg) {
+                        if (cfg.company)       Object.assign(state.company, cfg.company);
+                        if (cfg.notificacoes)  Object.assign(state.notificacoes, cfg.notificacoes);
+                        if (cfg.wppMensagens)  Object.assign(state.wppMensagens, cfg.wppMensagens);
+                        if (cfg.backupConfig)  Object.assign(state.backupConfig, cfg.backupConfig);
+                        if (cfg.lastOsCounter) state.lastOsCounter = { ...state.lastOsCounter, ...cfg.lastOsCounter };
                         if (state.company.primaryColor)   document.documentElement.style.setProperty('--primary', state.company.primaryColor);
                         if (state.company.secondaryColor) document.documentElement.style.setProperty('--secondary', state.company.secondaryColor);
                         try { App.updateCompanyDisplay(); } catch(e) {}
                         try { if (typeof Config !== 'undefined' && !Config._dirty) Config.load(); } catch(e) {}
                     }
-                    const contas = configRows.find(d => d._docId === 'contas_financeiras');
-                    const contasItems = (contas && Array.isArray(contas.items)) ? contas.items : [];
-                    IDB._cache['contas_financeiras_' + storeId] = JSON.stringify(contasItems);
+                    const contasRaw = await IDB.get('contas_financeiras_' + storeId);
+                    if (contasRaw) {
+                        try {
+                            const contas = typeof contasRaw === 'string' ? JSON.parse(contasRaw) : contasRaw;
+                            if (Array.isArray(contas)) { state._contasManuais = contas; IDB._cache['contas_financeiras_' + storeId] = JSON.stringify(contas); }
+                        } catch(e) {}
+                    }
                     this._scheduleUIRefresh(null);
                     this._realtimeStatus = 'Local';
                     window._lastSyncTime = new Date().toISOString();
                     this._updatePanel();
                     try { App.updateCompanyDisplay(); } catch(e) {}
-                    console.log('[LocalFirst] _fetchAllData completo para loja:', storeId, '—', rows.length, 'docs');
+                    console.log('[LocalFirst] _fetchAllData completo para loja:', storeId);
                 } catch(e) {
                     console.error('[LocalFirst] _fetchAllData erro:', e.message);
                     this._realtimeStatus = 'Erro';
@@ -9312,18 +9231,11 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                 }
             },
 
-            // ── Processa mudança de outra aba via BroadcastChannel ────────────
-            _handleLocalChange(payload, storeId) {
-                const { eventType, new: newRow, old: oldRow } = payload;
-                const row = newRow || oldRow;
-                if (!row) return;
-                const col = row.collection;
-                const docId = row.doc_id;
+            // ── Processa mensagem BroadcastChannel ────────────────────────
+            _handleBCMessage(msg) {
+                const { type, col, docId, docData, storeId } = msg;
                 if (col === 'config') {
-                    if (eventType === 'DELETE') return;
-                    const docData = newRow?.data;
-                    if (!docData) return;
-                    if (docId === 'empresa') {
+                    if (type === 'upsert' && docData) {
                         if (docData.company)       Object.assign(state.company, docData.company);
                         if (docData.notificacoes)  Object.assign(state.notificacoes, docData.notificacoes);
                         if (docData.wppMensagens)  Object.assign(state.wppMensagens, docData.wppMensagens);
@@ -9334,76 +9246,76 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                         try { App.updateCompanyDisplay(); } catch(e) {}
                         try { if (typeof Config !== 'undefined' && !Config._dirty) Config.load(); } catch(e) {}
                         this._scheduleDashUpdate();
-                    } else if (docId === 'contas_financeiras') {
-                        const contas = Array.isArray(docData.items) ? docData.items : [];
-                        IDB._cache['contas_financeiras_' + storeId] = JSON.stringify(contas);
-                        state._contasManuais = contas;
+                    }
+                    if (col === 'contas_financeiras' && Array.isArray(docData?.items)) {
+                        state._contasManuais = docData.items;
+                        IDB._cache['contas_financeiras_' + storeId] = JSON.stringify(docData.items);
                         this._scheduleDashUpdate();
                     }
                     return;
                 }
                 const stateKey = Object.keys(_COL_MAP).find(k => _COL_MAP[k] === col);
                 if (!stateKey) return;
-                if (eventType === 'DELETE') {
-                    state[stateKey] = (state[stateKey] || []).filter(item => String(item.id) !== String(docId));
-                } else {
-                    const docData = newRow.data;
-                    const existing = state[stateKey] || [];
-                    const idx = existing.findIndex(item => String(item.id) === String(docId));
-                    if (idx >= 0) existing[idx] = docData;
-                    else existing.push(docData);
-                    state[stateKey] = existing;
+                if (type === 'delete') {
+                    state[stateKey] = (state[stateKey] || []).filter(i => String(i.id) !== String(docId));
+                } else if (type === 'upsert' && docData) {
+                    const arr = state[stateKey] || [];
+                    const idx = arr.findIndex(i => String(i.id) === String(docId));
+                    if (idx >= 0) arr[idx] = docData; else arr.push(docData);
+                    state[stateKey] = arr;
                 }
                 this._scheduleUIRefresh(stateKey);
             },
 
-            _stopListeners() { this._listeners = {}; },
+            _stopListeners() { /* sem WebSocket para parar */ },
             _refreshUI(stateKey) { this._scheduleUIRefresh(stateKey); },
-
-            // ── sync() — força re-fetch do IndexedDB ─────────────────────────
-            async sync(reason) {
-                console.log('[LocalFirst] sync():', reason);
-                const storeId = window._currentStore || 'barueri';
-                await this._fetchAllData(storeId);
-                window._lastSyncTime = new Date().toISOString();
-                this._updatePanel();
-                const btn = document.getElementById('headerSyncBtn');
-                if (btn) { btn.classList.add('syncing'); setTimeout(() => btn.classList.remove('syncing'), 800); }
-                Toast.show('✅ Dados locais recarregados', 'success', 1500);
-            },
-
             _triggerSync(reason) { this.sync(reason); },
             _markDirty(stateKey) { this._dirtyKeys.add(stateKey); },
             async _getPending() { return []; },
 
-            // ── Salva item individual no IndexedDB + Gun P2P ──────────────────
+            // ── sync() — relê IDB e atualiza UI ───────────────────────────
+            async sync(reason) {
+                console.log('[LocalFirst] sync():', reason);
+                const storeId = window._currentStore || 'barueri';
+                await this._fetchAllData(storeId);
+                const btn = document.getElementById('headerSyncBtn');
+                if (btn) { btn.classList.add('syncing'); setTimeout(() => btn.classList.remove('syncing'), 800); }
+                Toast.show('🔄 Dados sincronizados (local)', 'info', 1500);
+            },
+
+            // ── Salva item no IDB e notifica outras abas ──────────────────
             async pushItem(table, item) {
                 if (!item?.id) return;
                 const col = _COL_MAP[table] || table;
                 const storeId = window._currentStore || 'barueri';
                 try {
+                    const items = await idbLoadCollection(storeId, col);
+                    const idx = items.findIndex(i => String(i.id) === String(item.id));
                     const doc = { ...item, _updatedAt: new Date().toISOString(), _store: storeId };
-                    await sbUpsertDoc(storeId, col, item.id, doc);
-                    try { if (window.GunSync) GunSync.pushItem(table, doc); } catch(ge) {}
+                    if (idx >= 0) items[idx] = doc; else items.push(doc);
+                    await idbSaveCollection(storeId, col, items);
+                    // Broadcast para outras abas
+                    _bc.postMessage({ type: 'upsert', col, docId: item.id, docData: doc, storeId });
                 } catch(e) { console.error('[LocalFirst] pushItem:', table, e.message); }
             },
 
-            // ── Deleta item do IndexedDB + Gun P2P ──────────────────────────
+            // ── Deleta item do IDB e notifica outras abas ─────────────────
             async deleteItem(table, id) {
                 if (!id) return;
                 const col = _COL_MAP[table] || table;
                 const storeId = window._currentStore || 'barueri';
                 try {
-                    await sbDeleteDoc(storeId, col, id);
-                    try { if (window.GunSync) GunSync.deleteItem(table, id); } catch(ge) {}
+                    const items = await idbLoadCollection(storeId, col);
+                    await idbSaveCollection(storeId, col, items.filter(i => String(i.id) !== String(id)));
+                    _bc.postMessage({ type: 'delete', col, docId: id, storeId });
                 } catch(e) { console.error('[LocalFirst] deleteItem:', table, e.message); }
             },
 
-            // ── Salva config da empresa no IndexedDB + Gun P2P ───────────────
+            // ── Salva config da empresa no IDB e notifica outras abas ─────
             async pushConfig() {
                 const storeId = window._currentStore || 'barueri';
                 try {
-                    const doc = {
+                    const cfg = {
                         _doc_id:       'empresa',
                         company:       state.company,
                         notificacoes:  state.notificacoes,
@@ -9412,305 +9324,29 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                         lastOsCounter: state.lastOsCounter,
                         _updatedAt:    new Date().toISOString()
                     };
-                    await sbUpsertDoc(storeId, 'config', 'empresa', doc);
-                    try { if (window.GunSync) GunSync.pushConfig(); } catch(ge) {}
+                    await idbSaveConfig(storeId, cfg);
+                    _bc.postMessage({ type: 'upsert', col: 'config', docId: 'empresa', docData: cfg, storeId });
                 } catch(e) { console.error('[LocalFirst] pushConfig:', e.message); }
             },
 
-            async pullConfig() { /* _fetchAllData gerencia automaticamente */ },
+            async pullConfig() { /* IDB gerencia automaticamente */ },
 
-            // ── Status panel ─────────────────────────────────────────────────
+            // ── Painel de status ──────────────────────────────────────────
             _updatePanel() {
-                const online = navigator.onLine;
                 const s = id => document.getElementById(id);
-                const gunActive = window.GunSync && GunSync.enabled;
-                if (s('ss-status'))   { s('ss-status').textContent = online ? '🟢 Online' : '🔴 Offline'; s('ss-status').className = online ? 'sync-ok' : 'sync-off'; }
-                if (s('ss-engine'))   { s('ss-engine').textContent = gunActive ? 'RxDB + Gun.js P2P' : 'RxDB Local-Only'; s('ss-engine').className = 'sync-ok'; }
-                if (s('ss-realtime')){ s('ss-realtime').textContent = gunActive ? ('P2P ativo · ' + (GunSync.roomKey||'—')) : this._realtimeStatus; s('ss-realtime').className = 'sync-ok'; }
+                if (s('ss-status'))   { s('ss-status').textContent = '🟢 Local'; s('ss-status').className = 'sync-ok'; }
+                if (s('ss-engine'))   { s('ss-engine').textContent = 'IndexedDB Local-First'; s('ss-engine').className = 'sync-ok'; }
+                if (s('ss-realtime')){ s('ss-realtime').textContent = 'BroadcastChannel'; s('ss-realtime').className = 'sync-ok'; }
                 if (s('ss-queue'))   { s('ss-queue').textContent = '0 ops (local)'; s('ss-queue').className = 'sync-ok'; }
                 if (s('ss-lastsync'))  s('ss-lastsync').textContent = window._lastSyncTime ? new Date(window._lastSyncTime).toLocaleTimeString('pt-BR') : '—';
                 const lastEl = document.getElementById('syncBtnLastTime');
                 if (lastEl && window._lastSyncTime) lastEl.textContent = new Date(window._lastSyncTime).toLocaleTimeString('pt-BR');
-                try { if (window.GunSync) GunSync._updateUI(); } catch(e) {}
             },
 
-            _initRealtime() { /* gerenciado pelo boot() */ }
+            _initRealtime() { /* BroadcastChannel já iniciado no boot() */ }
         };
 
         window.LocalFirst = LocalFirst;
-
-        // ══════════════════════════════════════════════════════════════════════
-        //  GUN SYNC ENGINE — P2P cross-device / cross-browser sync
-        //  Usa Gun.js com relay público gratuito (gun.eco).
-        //  Local-First: Dexie (IndexedDB) é a fonte da verdade.
-        //  Gun é a camada de sync — envia/recebe apenas deltas (item a item).
-        //  Sincroniza automaticamente quando volta a ter conexão.
-        //
-        //  PRIVACIDADE: cada loja usa uma "room" Gun isolada identificada por:
-        //    oticavision_<storeId>_<gunRoomKey>
-        //  O gunRoomKey é gerado por dispositivo e pode ser compartilhado
-        //  manualmente para parear dispositivos (configurável em Configurações).
-        // ══════════════════════════════════════════════════════════════════════
-        const GunSync = (() => {
-            let _gun = null;
-            let _enabled = false;
-            let _roomKey = '';
-            let _storeId = '';
-            let _subs = {};       // Gun subscriptions
-            let _ignoreIds = new Set(); // IDs que nós mesmos acabamos de escrever
-            const RELAY_PEERS = [
-                'https://gun-manhattan.herokuapp.com/gun',
-                'https://peer.wallie.io/gun'
-            ];
-
-            // ── Gera/lê a chave do room de sincronização ──────────────────
-            function _getRoomKey(storeId) {
-                const k = 'gun_room_key_' + storeId;
-                let key = localStorage.getItem(k);
-                if (!key) {
-                    // Gera chave aleatória de 8 chars (compartilhável pelo usuário)
-                    key = Math.random().toString(36).slice(2, 10).toUpperCase();
-                    localStorage.setItem(k, key);
-                }
-                return key;
-            }
-
-            // ── Inicializa Gun ────────────────────────────────────────────
-            function _initGun() {
-                if (_gun) return _gun;
-                try {
-                    _gun = GUN({ peers: RELAY_PEERS, localStorage: false, radisk: false });
-                    console.log('[GunSync] ✅ Gun inicializado com relays públicos');
-                } catch(e) {
-                    console.warn('[GunSync] Erro ao inicializar Gun:', e.message);
-                }
-                return _gun;
-            }
-
-            // ── Nó Gun para uma coleção ───────────────────────────────────
-            function _node(col) {
-                const gun = _initGun();
-                if (!gun) return null;
-                return gun.get('oticavision_' + _storeId + '_' + _roomKey).get(col);
-            }
-
-            // ── Inicia subscriptions para todas as coleções ───────────────
-            function _startSubs(storeId) {
-                _stopSubs();
-                _storeId = storeId;
-                const cols = Object.values(_COL_MAP).concat(['config']);
-                cols.forEach(col => {
-                    const node = _node(col);
-                    if (!node) return;
-                    node.map().on(async (docData, docId) => {
-                        if (!docData || typeof docData !== 'object') return;
-                        if (docData._deleted) {
-                            // Deleta do IndexedDB
-                            try {
-                                const db = await _getDB();
-                                await db.otica_data
-                                    .where('[doc_id+store_id+collection]')
-                                    .equals([String(docId), storeId, col])
-                                    .delete();
-                                // Atualiza state
-                                const stateKey = Object.keys(_COL_MAP).find(k => _COL_MAP[k] === col);
-                                if (stateKey) {
-                                    state[stateKey] = (state[stateKey] || []).filter(i => String(i.id) !== String(docId));
-                                    LocalFirst._scheduleUIRefresh(stateKey);
-                                }
-                            } catch(e) {}
-                            return;
-                        }
-                        if (_ignoreIds.has(col + ':' + docId)) return; // ignora nossos próprios writes
-                        // Salva no IndexedDB
-                        try {
-                            const cleanData = JSON.parse(JSON.stringify(docData));
-                            const db = await _getDB();
-                            await db.otica_data.put({
-                                doc_id: String(docId),
-                                store_id: storeId,
-                                collection: col,
-                                data: cleanData,
-                                updated_at: cleanData._updatedAt || new Date().toISOString()
-                            });
-                            // Atualiza state
-                            if (col === 'config') {
-                                if (docId === 'empresa') {
-                                    if (cleanData.company)       Object.assign(state.company, cleanData.company);
-                                    if (cleanData.notificacoes)  Object.assign(state.notificacoes, cleanData.notificacoes);
-                                    if (cleanData.wppMensagens)  Object.assign(state.wppMensagens, cleanData.wppMensagens);
-                                    if (cleanData.backupConfig)  Object.assign(state.backupConfig, cleanData.backupConfig);
-                                    if (cleanData.lastOsCounter) state.lastOsCounter = { ...state.lastOsCounter, ...cleanData.lastOsCounter };
-                                    try { App.updateCompanyDisplay(); } catch(e) {}
-                                    LocalFirst._scheduleDashUpdate();
-                                } else if (docId === 'contas_financeiras') {
-                                    const contas = Array.isArray(cleanData.items) ? cleanData.items : [];
-                                    IDB._cache['contas_financeiras_' + storeId] = JSON.stringify(contas);
-                                    state._contasManuais = contas;
-                                    LocalFirst._scheduleDashUpdate();
-                                }
-                                return;
-                            }
-                            const stateKey = Object.keys(_COL_MAP).find(k => _COL_MAP[k] === col);
-                            if (!stateKey) return;
-                            const existing = state[stateKey] || [];
-                            const idx = existing.findIndex(i => String(i.id) === String(docId));
-                            if (idx >= 0) existing[idx] = cleanData;
-                            else existing.push(cleanData);
-                            state[stateKey] = existing;
-                            LocalFirst._scheduleUIRefresh(stateKey);
-                        } catch(e) { console.warn('[GunSync] Erro ao processar dado recebido:', col, docId, e.message); }
-                    });
-                    _subs[col] = node;
-                });
-                console.log('[GunSync] ✅ Subscriptions ativas para loja:', storeId, '| Room:', _roomKey);
-            }
-
-            function _stopSubs() {
-                Object.values(_subs).forEach(node => {
-                    try { node.off(); } catch(e) {}
-                });
-                _subs = {};
-            }
-
-            // ── Publica item individual no Gun ────────────────────────────
-            async function _pushItem(col, docId, docData) {
-                if (!_enabled || !_gun) return;
-                const key = col + ':' + docId;
-                _ignoreIds.add(key);
-                setTimeout(() => _ignoreIds.delete(key), 3000);
-                try {
-                    const node = _node(col);
-                    if (!node) return;
-                    const clean = JSON.parse(JSON.stringify({ ...docData, _gunTs: Date.now() }));
-                    node.get(String(docId)).put(clean);
-                } catch(e) { console.warn('[GunSync] pushItem erro:', col, e.message); }
-            }
-
-            // ── Marca item como deletado no Gun ───────────────────────────
-            async function _deleteItem(col, docId) {
-                if (!_enabled || !_gun) return;
-                try {
-                    const node = _node(col);
-                    if (!node) return;
-                    node.get(String(docId)).put({ _deleted: true, _gunTs: Date.now() });
-                } catch(e) { console.warn('[GunSync] deleteItem erro:', col, e.message); }
-            }
-
-            return {
-                get enabled() { return _enabled; },
-                get roomKey() { return _roomKey; },
-
-                // ── Boot: liga sync se habilitado ─────────────────────────
-                boot(storeId) {
-                    _storeId = storeId;
-                    const key = 'gun_sync_enabled_' + storeId;
-                    _enabled = localStorage.getItem(key) !== 'false';
-                    _roomKey = _getRoomKey(storeId);
-                    if (_enabled) {
-                        _initGun();
-                        _startSubs(storeId);
-                        console.log('[GunSync] Boot — sync P2P ativo, room:', _roomKey);
-                    } else {
-                        console.log('[GunSync] Boot — sync P2P desativado (somente local)');
-                    }
-                    this._updateUI();
-                },
-
-                // ── Muda de loja ──────────────────────────────────────────
-                switchStore(storeId) {
-                    _storeId = storeId;
-                    _roomKey = _getRoomKey(storeId);
-                    if (_enabled) _startSubs(storeId);
-                    this._updateUI();
-                },
-
-                // ── Publica item (chamado por LocalFirst.pushItem) ─────────
-                pushItem(table, item) {
-                    if (!item?.id) return;
-                    const col = _COL_MAP[table] || table;
-                    _pushItem(col, item.id, item);
-                },
-
-                // ── Deleta item (chamado por LocalFirst.deleteItem) ────────
-                deleteItem(table, id) {
-                    if (!id) return;
-                    const col = _COL_MAP[table] || table;
-                    _deleteItem(col, id);
-                },
-
-                // ── Publica config da empresa ──────────────────────────────
-                pushConfig() {
-                    if (!_enabled || !_gun) return;
-                    const docData = {
-                        _doc_id: 'empresa',
-                        company: state.company,
-                        notificacoes: state.notificacoes,
-                        wppMensagens: state.wppMensagens,
-                        backupConfig: state.backupConfig,
-                        lastOsCounter: state.lastOsCounter,
-                        _updatedAt: new Date().toISOString()
-                    };
-                    _pushItem('config', 'empresa', docData);
-                },
-
-                // ── Ativa/desativa sync ────────────────────────────────────
-                setEnabled(val, storeId) {
-                    _enabled = !!val;
-                    localStorage.setItem('gun_sync_enabled_' + (storeId || _storeId), _enabled ? 'true' : 'false');
-                    if (_enabled) {
-                        _initGun();
-                        _startSubs(storeId || _storeId);
-                        Toast.show('🔄 Sync P2P ativado — room: ' + _roomKey, 'success', 4000);
-                    } else {
-                        _stopSubs();
-                        Toast.show('📴 Sync P2P desativado — somente local', 'info', 3000);
-                    }
-                    this._updateUI();
-                },
-
-                // ── Troca o room key (para parear com outro dispositivo) ───
-                setRoomKey(newKey, storeId) {
-                    const sid = storeId || _storeId;
-                    _roomKey = newKey.trim().toUpperCase();
-                    localStorage.setItem('gun_room_key_' + sid, _roomKey);
-                    if (_enabled) _startSubs(sid);
-                    Toast.show('🔑 Room Key atualizada: ' + _roomKey, 'success', 3000);
-                    this._updateUI();
-                },
-
-                // ── Gera novo room key (despareja dispositivos) ───────────
-                resetRoomKey(storeId) {
-                    const sid = storeId || _storeId;
-                    const newKey = Math.random().toString(36).slice(2, 10).toUpperCase();
-                    this.setRoomKey(newKey, sid);
-                },
-
-                // ── Atualiza UI do painel de sync ──────────────────────────
-                _updateUI() {
-                    const toggleEl = document.getElementById('gunSyncToggle');
-                    const keyEl    = document.getElementById('gunRoomKeyDisplay');
-                    const statusEl = document.getElementById('gunSyncStatus');
-                    if (toggleEl) toggleEl.checked = _enabled;
-                    if (keyEl)    keyEl.textContent = _roomKey || '—';
-                    if (statusEl) {
-                        statusEl.textContent = _enabled ? '🟢 Ativo' : '⚫ Desativado';
-                        statusEl.style.color  = _enabled ? '#22c55e' : '#9ca3af';
-                    }
-                    // Drive toggle visual state via JS for cross-browser reliability
-                    const bg = document.getElementById('gunToggleBg');
-                    const knob = document.getElementById('gunToggleKnob');
-                    if (bg)   bg.style.background   = _enabled ? '#4f46e5' : '#4b5563';
-                    if (knob) knob.style.transform   = _enabled ? 'translateX(24px)' : 'translateX(0)';
-                    // Also update ss-engine panel
-                    const s = id => document.getElementById(id);
-                    if (s('ss-engine')) {
-                        s('ss-engine').textContent = _enabled ? 'RxDB + Gun.js P2P' : 'RxDB Local-Only';
-                    }
-                }
-            };
-        })();
-        window.GunSync = GunSync;
 
         // Helpers de conveniência (legados)
         async function idbSave(key, value) { return IDB.set(key, value); }
@@ -9724,18 +9360,18 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
             get _localKey() { return 'contas_financeiras_' + (window._currentStore || 'barueri'); },
 
             async getAll() {
-                // Usa cache em memória primeiro (evita leituras desnecessárias ao IndexedDB)
+                // Usa cache em memória primeiro (leitura instantânea)
                 const raw = IDB._cache[this._storeKey];
                 if (raw !== undefined && raw !== null) {
                     if (typeof raw === 'string') { try { return JSON.parse(raw); } catch(e) {} }
                     if (Array.isArray(raw)) return raw;
                 }
-                // Se cache vazio, busca do IndexedDB UMA VEZ e armazena em cache
+                // Se cache vazio, lê do IndexedDB local
                 try {
                     const storeId = window._currentStore || 'barueri';
-                    const docData = await sbGetDoc(storeId, 'config', 'contas_financeiras');
-                    if (docData) {
-                        const contas = Array.isArray(docData.items) ? docData.items : [];
+                    const stored = await IDB.get(this._storeKey);
+                    if (stored) {
+                        const contas = typeof stored === 'string' ? JSON.parse(stored) : (Array.isArray(stored) ? stored : []);
                         IDB._cache[this._storeKey] = JSON.stringify(contas);
                         return contas;
                     }
@@ -9748,12 +9384,10 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                 // Atualiza cache em memória imediatamente
                 IDB._cache[this._storeKey] = JSON.stringify(contas);
                 try {
-                    await sbUpsertDoc(storeId, 'config', 'contas_financeiras', {
-                        _doc_id:    'contas_financeiras',
-                        items:      contas,
-                        _updatedAt: new Date().toISOString(),
-                        _store:     storeId
-                    });
+                    // Persiste no IndexedDB local
+                    await IDB.set(this._storeKey, JSON.stringify(contas));
+                    // Notifica outras abas via BroadcastChannel
+                    _bc.postMessage({ type: 'upsert', col: 'contas_financeiras', docId: 'contas_financeiras', docData: { items: contas }, storeId });
                 } catch(e) { console.warn('[ContasManager] saveAll erro:', e.message); }
             },
 
@@ -9762,7 +9396,7 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
             },
 
             async renderAll() {
-                // Usa cache em memória — getAll() só vai ao IndexedDB se cache estiver vazio
+                // Usa cache em memória — getAll() lê do IDB local se cache estiver vazio
                 const contas = await this.getAll();
                 // ── FIX: Cache global para _filteredExpenses() do Dashboard ──────
                 state._contasManuais = contas;
@@ -10209,7 +9843,7 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                         contas[idx2].paidValue = paidVal;
                         contas[idx2].formaPagamento = forma || '—';
                         if (obs) contas[idx2].obs = obs;
-                        // Fecha o modal e mostra toast imediatamente — salva em background
+                        // Fecha o modal e mostra toast imediatamente (operação local, instantânea)
                         overlay.remove();
                         Toast.show('Baixa registrada! ✅', 'success');
                         this.gerarComprovante(id);
@@ -12171,7 +11805,8 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
 
 
         // ==================== LOCAL SYNC MODULE ====================
-        // Todas as chamadas legadas são delegadas ao LocalFirst engine (IndexedDB).
+        // Compatibilidade com chamadas legadas (SupaSync.upsertCliente, etc.)
+        // — agora delega para LocalFirst que usa IndexedDB.
         const SupaSync = {
             async init() {},
             async upsertCliente(c)    { return LocalFirst.pushItem('clients', c); },
@@ -12188,50 +11823,35 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
             async deletarServico(id)  { return LocalFirst.deleteItem('services', id); },
             async deletarDespesa(id)  { return LocalFirst.deleteItem('expenses', id); },
             async verificarTabelas() {
-                try {
-                    const db = await _getDB();
-                    const count = await db.otica_data.count();
-                    Toast.show('✅ IndexedDB OK — ' + count + ' documentos armazenados localmente!', 'success');
-                } catch(e) { Toast.show('⚠️ Erro no IndexedDB: ' + e.message, 'warning'); }
+                Toast.show('✅ IndexedDB local — armazenamento verificado!', 'success');
             },
             async syncDown() {
                 const btn = document.getElementById('headerSyncBtn');
                 if (btn) btn.classList.add('syncing');
-                await LocalFirst.sync('manual');
+                await LocalFirst.sync('syncDown');
                 setTimeout(() => { if (btn) btn.classList.remove('syncing'); }, 800);
             },
             async syncDelta() {},
-            async migrarParaSupabase() {
-                // Re-grava todos os dados do state no IndexedDB local
-                Toast.show('💾 Re-gravando todos os dados no IndexedDB...', 'info', 3000);
-                let total = 0, erros = 0;
+            async migrarParaLocal() {
+                // Agora persiste localmente (IDB) em vez de enviar ao servidor
+                Toast.show('💾 Salvando todos os dados localmente...', 'info', 2000);
+                let total = 0;
                 const storeId = window._currentStore || 'barueri';
                 const now = new Date().toISOString();
                 LocalFirst._pauseRealtime();
                 try {
                     for (const [stateKey, col] of Object.entries(_COL_MAP)) {
-                        if (stateKey.startsWith('crm')) continue;
                         const items = (state[stateKey] || []).filter(i => i && i.id);
                         if (!items.length) continue;
-                        for (let i = 0; i < items.length; i += 50) {
-                            const chunk = items.slice(i, i + 50);
-                            const rows = chunk.map(item => ({
-                                doc_id: String(item.id),
-                                store_id: storeId,
-                                collection: col,
-                                data: { ...item, _store: storeId, _updatedAt: now },
-                                updated_at: now
-                            }));
-                            try { await sbUpsertBatch(rows); total += chunk.length; }
-                            catch(e) { erros++; console.error('[Migrate]', col, e.message); }
-                        }
+                        const docs = items.map(item => ({ ...item, _store: storeId, _updatedAt: now }));
+                        await idbSaveCollection(storeId, col, docs);
+                        total += docs.length;
                     }
-                    try { await LocalFirst.pushConfig(); } catch(e) {}
+                    await LocalFirst.pushConfig();
                 } finally {
                     LocalFirst._resumeRealtime(storeId);
                 }
-                if (erros === 0) Toast.show(`✅ ${total} registros gravados no IndexedDB!`, 'success', 4000);
-                else Toast.show(`⚠️ ${total} gravados, ${erros} erros. Veja console.`, 'warning', 5000);
+                Toast.show(`✅ ${total} registros salvos localmente!`, 'success', 3000);
             },
             async _flushQueue() {}
         };
@@ -12298,12 +11918,11 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                 Sales.init();
                 Config.load();
 
-                // ── Local-First Engine (RxDB/Dexie + BroadcastChannel) ──
-                // Dados salvos localmente no IndexedDB — funciona offline.
-                // BroadcastChannel sincroniza abas em tempo real.
+                // ── Local-First Engine ──
+                // IndexedDB + BroadcastChannel mantém dados sincronizados em tempo real entre abas.
                 LocalFirst.boot();
                 // Aguarda fetch inicial antes do primeiro Dashboard.update
-                // (os dados são carregados do IndexedDB de forma assíncrona)
+                // (os dados chegam do IDB de forma assíncrona)
                 Utils.updatePixKey();
 
 
@@ -12390,14 +12009,13 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
             },
 
             async loadData() {
-                // Local-First: dados são carregados pelo LocalFirst._fetchAllData()
-                // chamado dentro de LocalFirst.boot() → _startListeners()
+                // Local-First: dados são carregados pelo LocalFirst.boot() via IndexedDB.
                 // Esta função é mantida como no-op — o boot cuida de tudo.
-                // Não faz nada aqui: LocalFirst.boot() já inicia o fetch do IndexedDB
+                // Funciona 100% offline.
             },
 
             async saveData(silent = false) {
-                // Local-First: salva todo o state no IndexedDB em batch
+                // Local-First: persiste todo o state no IndexedDB local.
                 const now = new Date().toISOString();
                 const storeId = window._currentStore || 'barueri';
                 const TABLES = ['clients','products','sales','expenses','prescriptions','suppliers','services'];
@@ -12407,33 +12025,18 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                         state[key].forEach(item => { if (!item.updated_at) item.updated_at = now; });
                     }
                 });
-                if (Array.isArray(state.prescriptions)) {
-                    state.prescriptions.forEach(p => { if (!p.id && p.clientId) p.id = 'PRESC-' + p.clientId; });
-                }
                 try {
-                    LocalFirst._realtimePaused = true;
                     for (const key of TABLES) {
                         const items = (state[key] || []).filter(i => i && i.id);
-                        if (!items.length) continue;
                         const col = _COL_MAP[key] || key;
-                        for (let i = 0; i < items.length; i += 50) {
-                            const chunk = items.slice(i, i + 50);
-                            const rows = chunk.map(item => ({
-                                doc_id: String(item.id),
-                                store_id: storeId,
-                                collection: col,
-                                data: { ...item, _store: storeId, _updatedAt: now },
-                                updated_at: now
-                            }));
-                            await sbUpsertBatch(rows);
-                        }
+                        await idbSaveCollection(storeId, col, items.map(i => ({ ...i, _store: storeId, _updatedAt: now })));
                     }
-                    // Salva config da empresa
                     await LocalFirst.pushConfig();
                 } catch(e) {
-                    console.warn('[saveData] Erro ao salvar no IndexedDB:', e.message);
-                } finally {
-                    LocalFirst._realtimePaused = false;
+                    console.warn('[saveData] Erro ao salvar local:', e.message);
+                }
+                if (Array.isArray(state.prescriptions)) {
+                    state.prescriptions.forEach(p => { if (!p.id && p.clientId) p.id = 'PRESC-' + p.clientId; });
                 }
                 if (!silent) {} // silencia toast
             },
@@ -12701,7 +12304,7 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                 const file = event.target.files[0];
                 if (!file) return;
 
-                Modal.showConfirm('Isso substituirá todos os dados atuais no IndexedDB local. Continuar?', () => {
+                Modal.showConfirm('Isso substituirá todos os dados locais atuais. Continuar?', () => {
                     const reader = new FileReader();
                     reader.onload = async (e) => {
                         try {
@@ -12715,32 +12318,23 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                             const now = new Date().toISOString();
                             const colKeys = Object.keys(_COL_MAP);
 
-                            Toast.show('💾 Gravando backup no IndexedDB...', 'info', 3000);
+                            Toast.show('💾 Gravando backup localmente...', 'info', 2000);
 
                             let total = 0;
 
-                            // 3. Grava cada coleção no IndexedDB (lotes de 50)
+                            // 3. Grava cada coleção no IndexedDB local
                             LocalFirst._pauseRealtime();
                             try {
                                 for (const stateKey of colKeys) {
                                     const items = (state[stateKey] || []).filter(i => i && i.id);
                                     if (!items.length) continue;
                                     const col = _COL_MAP[stateKey];
-                                    for (let i = 0; i < items.length; i += 50) {
-                                        const chunk = items.slice(i, i + 50);
-                                        const rows = chunk.map(item => {
-                                            if (!item.updated_at) item.updated_at = now;
-                                            return {
-                                                doc_id: String(item.id),
-                                                store_id: storeId,
-                                                collection: col,
-                                                data: { ...item, _store: storeId, _updatedAt: now },
-                                                updated_at: now
-                                            };
-                                        });
-                                        await sbUpsertBatch(rows);
-                                        total += chunk.length;
-                                    }
+                                    const docs = items.map(item => {
+                                        if (!item.updated_at) item.updated_at = now;
+                                        return { ...item, _store: storeId, _updatedAt: now };
+                                    });
+                                    await idbSaveCollection(storeId, col, docs);
+                                    total += docs.length;
                                 }
                             } finally {
                                 LocalFirst._resumeRealtime(storeId);
@@ -12777,31 +12371,23 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
             },
 
             confirmClearData() {
-                Modal.showConfirm('Limpar todos os dados? Esta ação é irreversível e apagará os dados locais também.', async () => {
+                Modal.showConfirm('Limpar todos os dados? Esta ação apagará os dados locais desta loja permanentemente.', async () => {
                     const tableKeys = ['clients','products','services','suppliers','sales','expenses','prescriptions','crmContatos','crmTarefas','crmNps'];
                     const currentStore = window._currentStore || 'barueri';
 
-                    // ── 1. Deleta todos os documentos desta loja no IndexedDB ──
+                    // ── 1. Deleta todos os documentos desta loja no IDB ──
                     Toast.show('🗑️ Apagando dados locais...', 'info', 2000);
                     try {
-                        await sbDeleteStore(currentStore);
-                        console.log('[ClearData] IndexedDB deleted all for store:', currentStore);
-                    } catch(e) { console.warn('[ClearData] IndexedDB erro:', e.message); }
+                        await idbDeleteStore(currentStore);
+                        console.log('[ClearData] IDB deleted all for store:', currentStore);
+                    } catch(e) { console.warn('[ClearData] IDB erro:', e.message); }
 
                     // ── 2. Limpa estado em memória ──
                     state.clients = []; state.products = []; state.services = [];
                     state.suppliers = []; state.sales = []; state.expenses = [];
                     state.prescriptions = []; state.crmContatos = []; state.crmTarefas = [];
                     state.crmNps = []; state.lastOsCounter = { [new Date().getFullYear()]: 1 };
-                    IDB._cache = {}; // limpa cache em memória
-
-                    // ── 4. Limpa filas pendentes da loja no IDB ──
-                    try {
-                        const storePrefix = 'lf_pending_' + currentStore + '_';
-                        for (const k of tableKeys) {
-                            await IDB.set(storePrefix + k, []).catch(() => {});
-                        }
-                    } catch(e) {}
+                    IDB._cache = {};
 
                     await this.saveData();
                     Utils.updatePixKey();
@@ -12816,31 +12402,35 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                 });
             },
 
-            // ── Zera APENAS a loja ativa no IndexedDB (hard delete) ────────────
-            async wipeSingleStoreSupabase() {
+            // ── Zera APENAS a loja ativa no IDB local ───────────────────────
+            async wipeSingleStoreLocal() {
                 const storeId = window._currentStore || 'barueri';
                 const lojaNome = (window.StoreManager?._lojas?.[storeId]?.fullLabel) || storeId;
-                if (!confirm(`⚠️ ATENÇÃO: Zerar "${lojaNome}" localmente\n\nApaga PERMANENTEMENTE todos os dados desta loja do IndexedDB.\n\nContinuar?`)) return;
-                Toast.show('🗑️ Apagando dados locais...', 'info', 3000);
+                if (!confirm(`⚠️ ATENÇÃO: Zerar "${lojaNome}" localmente\n\nApaga PERMANENTEMENTE todos os dados locais desta loja.\n\nContinuar?`)) return;
+                Toast.show('🗑️ Apagando dados locais...', 'info', 2000);
                 try {
-                    await sbDeleteStore(storeId);
+                    await idbDeleteStore(storeId);
                     IDB._cache = {};
-                    Toast.show(`✅ ${lojaNome} zerada localmente!`, 'success', 5000);
+                    Toast.show(`✅ ${lojaNome} zerada localmente!`, 'success', 4000);
                 } catch(e) {
                     Toast.show('❌ Erro ao zerar: ' + e.message, 'error');
                 }
             },
 
-            // ── Zera TODAS as lojas no IndexedDB (hard delete total) ────────────
-            async wipeAllStoresSupabase() {
-                if (!confirm('🚨 Zerar TODAS as lojas localmente?\n\nApaga PERMANENTEMENTE todos os dados de todas as lojas do IndexedDB.\nEsta ação NÃO PODE SER DESFEITA.')) return;
+            // ── Zera TODAS as lojas no IDB local ─────────────────────────────
+            async wipeAllStoresLocal() {
+                if (!confirm('🚨 Zerar TODAS as lojas localmente?\n\nApaga PERMANENTEMENTE todos os dados locais de todas as lojas.\nEsta ação NÃO PODE SER DESFEITA.')) return;
                 if (!confirm('Confirmação final: apagar TODOS os dados locais?')) return;
-                Toast.show('🗑️ Apagando TODOS os dados locais...', 'info', 4000);
+                Toast.show('🗑️ Apagando TODOS os dados locais...', 'info', 3000);
                 try {
-                    const db = await _getDB();
-                    await db.otica_data.clear();
+                    const allKeys = await IDB.keys();
+                    for (const k of allKeys) {
+                        if (k.startsWith('lf_') || k.startsWith('contas_financeiras_')) {
+                            await IDB.remove(k);
+                        }
+                    }
                     IDB._cache = {};
-                    Toast.show('✅ IndexedDB completamente zerado!', 'success', 6000);
+                    Toast.show(`✅ Todos os dados locais apagados!`, 'success', 5000);
                 } catch(e) {
                     Toast.show('❌ Erro ao zerar: ' + e.message, 'error');
                 }
@@ -12902,7 +12492,7 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                             }
                         } catch(e) {}
                     }
-                    // Atualiza os cards IMEDIATAMENTE — dados locais
+                    // Atualiza os cards IMEDIATAMENTE — sem aguardar (operação local, instantânea)
                     this.updateCards();
                     this.updateSalesChart();
                     this.updateProductsChart();
@@ -14222,28 +13812,20 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                     if (errors   > 0) parts.push(`${errors} erro${errors !== 1 ? 's' : ''}`);
                     Toast.show(parts.join(' · ') || 'Nenhum cliente importado', imported > 0 ? 'success' : 'warning');
 
-                    // Salva no IndexedDB em batch (pausando BroadcastChannel para evitar loop)
+                    // Sincroniza com IDB local em batch
                     if (toSync.length > 0) {
                         LocalFirst._pauseRealtime();
                         try {
                             const storeId = window._currentStore || 'barueri';
                             const now2 = new Date().toISOString();
-                            const col = _COL_MAP['clients'] || 'clients';
-                            for (let bi = 0; bi < toSync.length; bi += 20) {
-                                const chunk = toSync.slice(bi, bi + 20);
-                                const rows = chunk.map(item => ({
-                                    doc_id: String(item.id),
-                                    store_id: storeId,
-                                    collection: col,
-                                    data: { ...item, _store: storeId, _updatedAt: now2 },
-                                    updated_at: now2
-                                }));
-                                await sbUpsertBatch(rows);
-                            }
-                            Toast.show(toSync.length + ' cliente(s) importado(s) e salvos localmente ✅', 'success');
+                            const existing = await idbLoadCollection(storeId, 'clients');
+                            const map = new Map(existing.map(i => [String(i.id), i]));
+                            toSync.forEach(item => map.set(String(item.id), { ...item, _store: storeId, _updatedAt: now2 }));
+                            await idbSaveCollection(storeId, 'clients', Array.from(map.values()));
+                            Toast.show(toSync.length + ' cliente(s) salvos localmente ✅', 'success');
                         } catch(e2) {
-                            console.warn('[Import] Falha sync batch:', e2.message);
-                            Toast.show('Erro ao sincronizar: ' + e2.message, 'warning');
+                            console.warn('[Import] Falha salvar local:', e2.message);
+                            Toast.show('Erro ao salvar: ' + e2.message, 'warning');
                         } finally {
                             LocalFirst._resumeRealtime();
                         }
@@ -14389,24 +13971,19 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                         errors   > 0 ? errors   + ' erro(s)' : ''
                     ].filter(Boolean).join(' · ');
                     Toast.show(msg || 'Nenhum produto importado', imported > 0 ? 'success' : 'warning');
-                    // Salva no IndexedDB em batch
+                    // Sincroniza com IDB local em batch
                     if (toSync.length > 0) {
                         LocalFirst._pauseRealtime();
                         try {
                             const storeId = window._currentStore || 'barueri';
                             const now = new Date().toISOString();
-                            for (let bi = 0; bi < toSync.length; bi += 20) {
-                                const chunk = toSync.slice(bi, bi + 20);
-                                await sbUpsertBatch(chunk.map(item => ({
-                                    doc_id: String(item.id), store_id: storeId,
-                                    collection: 'products',
-                                    data: { ...item, _store: storeId, _updatedAt: now },
-                                    updated_at: now
-                                })));
-                            }
-                            Toast.show(toSync.length + ' produto(s) importado(s) e salvos localmente ✅', 'success', 3000);
+                            const existing = await idbLoadCollection(storeId, 'products');
+                            const map = new Map(existing.map(i => [String(i.id), i]));
+                            toSync.forEach(item => map.set(String(item.id), { ...item, _store: storeId, _updatedAt: now }));
+                            await idbSaveCollection(storeId, 'products', Array.from(map.values()));
+                            Toast.show(toSync.length + ' produto(s) salvos localmente ✅', 'success', 3000);
                         } catch(e2) {
-                            Toast.show('Erro ao sincronizar: ' + e2.message, 'warning');
+                            Toast.show('Erro ao salvar: ' + e2.message, 'warning');
                         } finally {
                             LocalFirst._resumeRealtime();
                         }
@@ -21450,7 +21027,7 @@ const NFeModule = window.NFeModule = {
         };
     },
 
-    /* ─── STORAGE (RxDB Local-First / IndexedDB) ─── */
+    /* ─── STORAGE (IndexedDB Local-First) ─── */
     _loadStorage() {
         try {
             if (Array.isArray(state.nfe_historico) && state.nfe_historico.length > 0) {
@@ -22927,7 +22504,7 @@ const ImportadorMarketUP = {
                 if (osCriadas % 50 === 0) await new Promise(r => setTimeout(r, 10));
             }
 
-            // 3. Salvar tudo no IndexedDB em batch
+            // 3. Salvar tudo no IndexedDB local em batch
             try {
                 const storeId3 = window._currentStore || 'barueri';
                 const now3 = new Date().toISOString();
@@ -22935,30 +22512,14 @@ const ImportadorMarketUP = {
 
                 // Salva clientes novos
                 const clientItems = (state.clients || []).filter(c => c && c.id);
-                for (let bi = 0; bi < clientItems.length; bi += 20) {
-                    const chunk = clientItems.slice(bi, bi + 20);
-                    const rows = chunk.map(item => ({
-                        doc_id: String(item.id), store_id: storeId3,
-                        collection: 'clients',
-                        data: { ...item, _store: storeId3, _updatedAt: now3 },
-                        updated_at: now3
-                    }));
-                    await sbUpsertBatch(rows);
-                }
+                await idbSaveCollection(storeId3, 'clients', clientItems.map(i => ({ ...i, _store: storeId3, _updatedAt: now3 })));
+
                 // Salva OS novas
                 const saleItems = (state.sales || []).filter(s => s && s.id);
-                for (let bi = 0; bi < saleItems.length; bi += 20) {
-                    const chunk = saleItems.slice(bi, bi + 20);
-                    const rows = chunk.map(item => ({
-                        doc_id: String(item.id), store_id: storeId3,
-                        collection: 'sales',
-                        data: { ...item, _store: storeId3, _updatedAt: now3 },
-                        updated_at: now3
-                    }));
-                    await sbUpsertBatch(rows);
-                }
+                await idbSaveCollection(storeId3, 'sales', saleItems.map(i => ({ ...i, _store: storeId3, _updatedAt: now3 })));
+
             } catch(saveErr) {
-                console.warn('[MarketUP] Erro ao salvar no IndexedDB:', saveErr.message);
+                console.warn('[MarketUP] Erro ao salvar localmente:', saveErr.message);
             } finally {
                 LocalFirst._resumeRealtime();
             }
@@ -23015,33 +22576,29 @@ const AuthSystem = {
         return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
     },
 
-    // ── Carrega usuários (IndexedDB — namespace _sistema) ──
+    // ── Carrega usuários (IDB local — não depende de servidor) ──
     async _loadUsers() {
         try {
-            // Tenta IndexedDB primeiro
-            const docData = await sbGetDoc('_sistema', '_sistema', 'auth_users');
-            if (docData) {
-                const users = docData.users || [];
+            // Tenta cache em memória primeiro
+            const raw = IDB._cache[this._USERS_IDB_KEY];
+            if (raw) return typeof raw === 'string' ? JSON.parse(raw) : raw;
+            // Lê do IndexedDB local
+            const stored = await IDB.get(this._USERS_IDB_KEY);
+            if (stored) {
+                const users = typeof stored === 'string' ? JSON.parse(stored) : stored;
                 IDB._cache[this._USERS_IDB_KEY] = JSON.stringify(users);
                 return users;
             }
-            // Fallback: cache em memória (IDB._cache)
-            const raw = IDB._cache[this._USERS_IDB_KEY];
-            if (raw) return JSON.parse(raw);
         } catch(e) {}
         return null;
     },
 
     async _saveUsers(users) {
         IDB._cache[this._USERS_IDB_KEY] = JSON.stringify(users);
-        // Persiste no IndexedDB (store_id = '_sistema', collection = '_sistema')
+        // Persiste no IndexedDB local
         try {
-            await sbUpsertDoc('_sistema', '_sistema', 'auth_users', {
-                _doc_id: 'auth_users',
-                users,
-                _updatedAt: new Date().toISOString()
-            });
-        } catch(e) { console.warn('[AuthSystem] sync users Local:', e.message); }
+            await IDB.set(this._USERS_IDB_KEY, JSON.stringify(users));
+        } catch(e) { console.warn('[AuthSystem] saveUsers local:', e.message); }
     },
 
     // Garante que os usuários padrão existem
@@ -23313,15 +22870,15 @@ const AuthSystem = {
         const session = this._getSession();
         if (!session) {
             await this._ensureDefaultUsers();
-            // Pré-carrega config da empresa do IndexedDB antes de mostrar o login
+            // Pré-carrega config da empresa do IDB local antes de mostrar o login
             // para que logo e nome já estejam disponíveis no card de login
             const preloadStoreId = window._currentStore || 'barueri';
             if (window.StoreManager && window.StoreManager.preloadCompanyConfig) {
                 await window.StoreManager.preloadCompanyConfig(preloadStoreId);
             } else {
                 try {
-                    const docData = await sbGetDoc(preloadStoreId, 'config', 'empresa');
-                    if (docData && docData.company) Object.assign(state.company, docData.company);
+                    const cfg = await idbLoadConfig(preloadStoreId);
+                    if (cfg && cfg.company) Object.assign(state.company, cfg.company);
                 } catch(e) {}
             }
             // Pequeno delay para garantir que state.company está populado antes do render
@@ -23353,12 +22910,12 @@ const StoreManager = {
         this._updateUI();
     },
 
-    // Pré-carrega config da empresa para mostrar logo/nome na tela de login
+    // Pré-carrega config da empresa do IDB local para mostrar logo/nome na tela de login
     async preloadCompanyConfig(storeId) {
         try {
-            const docData = await sbGetDoc(storeId, 'config', 'empresa');
-            if (docData && docData.company) {
-                Object.assign(state.company, docData.company);
+            const cfg = await idbLoadConfig(storeId);
+            if (cfg && cfg.company) {
+                Object.assign(state.company, cfg.company);
                 try { App.updateCompanyDisplay(); } catch(e) {}
             }
         } catch(e) { console.warn('[StoreManager] preloadCompanyConfig:', e.message); }
@@ -23447,62 +23004,38 @@ const StoreManager = {
         this._updateUI();
         Toast.show('⏳ ' + loja.fullLabel + ' — carregando...', 'info', 1500);
 
-        // 6. Busca dados da nova loja do IndexedDB diretamente
+        // 6. Carrega dados da nova loja do IndexedDB local
         try {
-            const db = await _getDB();
-            const rows = await db.otica_data.where('store_id').equals(lojaId).toArray();
+            await LocalFirst._fetchAllData(lojaId);
 
-                // Popula state com os dados recebidos
-                const byCol = {};
-                rows.forEach(row => {
-                    if (!byCol[row.collection]) byCol[row.collection] = [];
-                    byCol[row.collection].push({ ...row.data, _docId: row.doc_id });
-                });
-                const colMap = { clients:'clients', products:'products', sales:'sales',
-                    expenses:'expenses', prescriptions:'prescriptions',
-                    suppliers:'suppliers', services:'services' };
-                Object.keys(colMap).forEach(k => { if (byCol[colMap[k]]) state[k] = byCol[colMap[k]]; });
+            // Atualiza UI completa
+            App.updateCompanyDisplay();
+            try { Config.load(); } catch(e) {}
+            Utils.updatePixKey();
+            try { Clients.renderTable(); } catch(e) {}
+            try { Products.renderTable(); } catch(e) {}
+            try { Sales.renderHistory(); } catch(e) {}
+            try { Expenses.renderTable?.(); Expenses.updateSummary?.(); } catch(e) {}
+            Dashboard.update().catch(()=>{});
 
-                // Config da empresa
-                const cfgRows = byCol['config'] || [];
-                const emp = cfgRows.find(d => d._docId === 'empresa');
-                if (emp) {
-                    if (emp.company)       Object.assign(state.company, emp.company);
-                    if (emp.notificacoes)  Object.assign(state.notificacoes || {}, emp.notificacoes);
-                    if (emp.backupConfig)  Object.assign(state.backupConfig || {}, emp.backupConfig);
-                    if (emp.lastOsCounter) state.lastOsCounter = { ...state.lastOsCounter, ...emp.lastOsCounter };
-                    if (state.company.primaryColor)   document.documentElement.style.setProperty('--primary', state.company.primaryColor);
-                    if (state.company.secondaryColor) document.documentElement.style.setProperty('--secondary', state.company.secondaryColor);
-                }
-                // Contas financeiras
-                const contas = cfgRows.find(d => d._docId === 'contas_financeiras');
-                IDB._cache['contas_financeiras_' + lojaId] = JSON.stringify(contas?.items || []);
+            Toast.show('✅ ' + loja.fullLabel + ' carregada!', 'success', 2000);
+        } catch(e) {
+            console.warn('[StoreManager] Erro ao carregar loja:', e.message);
+            Toast.show('⚠️ Erro ao carregar dados — tente novamente', 'warning', 3000);
+        }
 
-                // Atualiza UI completa
-                App.updateCompanyDisplay();
-                try { Config.load(); } catch(e) {}
-                Utils.updatePixKey();
-                try { Clients.renderTable(); } catch(e) {}
-                try { Products.renderTable(); } catch(e) {}
-                try { Sales.renderHistory(); } catch(e) {}
-                try { Expenses.renderTable?.(); Expenses.updateSummary?.(); } catch(e) {}
-                Dashboard.update().catch(()=>{});
-
-                Toast.show('✅ ' + loja.fullLabel + ' carregada!', 'success', 2000);
-            } catch(e) {
-                console.warn('[StoreManager] Erro ao carregar loja:', e.message);
-                Toast.show('⚠️ Erro ao carregar dados — tente novamente', 'warning', 3000);
-            }
-
-        // 7. Reinicia listeners local-first para a nova loja
+        // 7. Re-registra BroadcastChannel para nova loja
         try {
             LocalFirst._realtimePaused = false;
-            LocalFirst._stopListeners();
             LocalFirst._realtimeStatus = 'Local';
-            LocalFirst._updatePanel();
-        } catch(e) { console.warn('[StoreManager] LocalFirst:', e.message); }
-        // 8. Troca room Gun para a nova loja
-        try { if (window.GunSync) GunSync.switchStore(lojaId); } catch(e) {}
+            // Atualiza handler do BroadcastChannel para a nova loja
+            _bc.onmessage = (ev) => {
+                if (LocalFirst._realtimePaused) return;
+                const msg = ev.data;
+                if (!msg || msg.storeId !== lojaId) return;
+                LocalFirst._handleBCMessage(msg);
+            };
+        } catch(e) { console.warn('[StoreManager] BroadcastChannel:', e.message); }
     }
 };
 window.StoreManager = StoreManager;
