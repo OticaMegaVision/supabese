@@ -7563,11 +7563,16 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                             <h4 style="color:#c7d2fe;margin-bottom:0.5rem;display:flex;align-items:center;gap:0.5rem;">
                                 <i class="fas fa-network-wired" style="color:#818cf8;"></i> Sync P2P entre Dispositivos — Gun.js
                             </h4>
-                            <p style="color:#a5b4fc;font-size:0.82rem;margin-bottom:1rem;">
+                            <p style="color:#a5b4fc;font-size:0.82rem;margin-bottom:0.75rem;">
                                 Sincroniza dados em tempo real entre <strong>diferentes navegadores e dispositivos</strong>
                                 sem servidor próprio, usando relay P2P gratuito (gun.eco).
                                 Dispositivos com a mesma <strong>Room Key</strong> ficam sincronizados automaticamente.
                             </p>
+
+                            <!-- Status do relay -->
+                            <div id="gunConnStatus" style="font-size:0.78rem;padding:5px 10px;border-radius:6px;background:rgba(0,0,0,0.3);margin-bottom:1rem;color:#9ca3af;">
+                                ⚫ Sync desativado
+                            </div>
 
                             <!-- Toggle + Status -->
                             <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;margin-bottom:1.1rem;">
@@ -7599,7 +7604,7 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                                         if (key && key.trim()) GunSync.setRoomKey(key, window._currentStore||'barueri');
                                     "><i class="fas fa-link"></i> Parear</button>
                                     <button class="btn btn-sm" style="background:#dc2626;color:#fff;font-weight:700;font-size:0.75rem;" onclick="
-                                        if(confirm('Gerar nova Room Key?\\nIsso vai desparear os outros dispositivos.')) GunSync.resetRoomKey(window._currentStore||'barueri');
+                                        if(confirm('Gerar nova Room Key?\nIsso vai desparear os outros dispositivos.')) GunSync.resetRoomKey(window._currentStore||'barueri');
                                     "><i class="fas fa-random"></i> Nova Key</button>
                                 </div>
                                 <p style="color:#64748b;font-size:0.72rem;margin-top:0.6rem;line-height:1.4;">
@@ -7607,17 +7612,32 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                                 </p>
                             </div>
 
+                            <!-- Botão forçar sincronização -->
+                            <div style="margin-bottom:1rem;">
+                                <button class="btn btn-sm" style="background:#7c3aed;color:#fff;font-weight:700;width:100%;padding:10px;" onclick="GunSync.forcePushAll()">
+                                    <i class="fas fa-satellite-dish"></i> Enviar TODOS os dados ao outro dispositivo agora
+                                </button>
+                                <p style="color:#475569;font-size:0.7rem;margin-top:0.4rem;text-align:center;">
+                                    Use este botão se o outro dispositivo não recebeu os dados históricos
+                                </p>
+                            </div>
+
                             <!-- Como usar -->
                             <details style="color:#94a3b8;font-size:0.8rem;">
                                 <summary style="cursor:pointer;color:#a5b4fc;font-weight:600;margin-bottom:0.5rem;">ℹ️ Como parear dispositivos</summary>
                                 <ol style="padding-left:1.2rem;line-height:1.8;margin-top:0.5rem;color:#94a3b8;">
-                                    <li>Ative o Sync P2P neste dispositivo</li>
-                                    <li>Copie a <strong style="color:#a6e3a1;">Room Key</strong></li>
-                                    <li>No outro dispositivo, abra este sistema e vá em Configurações → Sync P2P</li>
+                                    <li>Ative o Sync P2P <strong style="color:#a6e3a1;">nos dois dispositivos</strong></li>
+                                    <li>Copie a <strong style="color:#a6e3a1;">Room Key</strong> do dispositivo principal</li>
+                                    <li>No outro dispositivo, vá em Configurações → Sync P2P</li>
                                     <li>Ative o Sync P2P e clique em <strong style="color:#0ea5e9;">Parear</strong></li>
                                     <li>Cole a Room Key e confirme</li>
-                                    <li>Os dois dispositivos ficam sincronizados automaticamente ✅</li>
+                                    <li>Clique em <strong style="color:#a78bfa;">Enviar TODOS os dados</strong> no dispositivo principal</li>
+                                    <li>Os dois ficam sincronizados automaticamente ✅</li>
                                 </ol>
+                                <p style="color:#f59e0b;margin-top:0.5rem;font-size:0.75rem;">
+                                    ⚠️ O status <strong>"Relay conectado"</strong> deve aparecer em verde antes de parear.
+                                    Se ficar amarelo por mais de 30s, os relays públicos estão instáveis — tente novamente em alguns minutos.
+                                </p>
                             </details>
                         </div>
 
@@ -9492,15 +9512,20 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
             let _enabled = false;
             let _roomKey = '';
             let _storeId = '';
-            let _subs = {};       // Gun subscriptions
-            let _ignoreIds = new Set(); // IDs que nós mesmos acabamos de escrever
+            let _subs = {};
+            let _ignoreIds = new Set();
+            let _connected = false;
+            let _connectedPeers = 0;
+            let _initialPushDone = false;
+
+            // ── Relays ativos e confiáveis (sem Heroku — plano free extinto) ──
             const RELAY_PEERS = [
-                'https://gun-manhattan.herokuapp.com/gun',
-                'https://peer.wallie.io/gun',
                 'https://gun.grazes.com/gun',
                 'https://gundb.io/gun',
                 'https://y.gundb.io/gun',
-                'https://tubes.chit.chat/gun'
+                'https://peer.wallie.io/gun',
+                'https://plankton.shot.holllo.com/gun',
+                'https://www.raygun.live/gun'
             ];
 
             // ── Gera/lê a chave do room de sincronização ──────────────────
@@ -9508,23 +9533,62 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                 const k = 'gun_room_key_' + storeId;
                 let key = localStorage.getItem(k);
                 if (!key) {
-                    // Gera chave aleatória de 8 chars (compartilhável pelo usuário)
                     key = Math.random().toString(36).slice(2, 10).toUpperCase();
                     localStorage.setItem(k, key);
                 }
                 return key;
             }
 
-            // ── Inicializa Gun ────────────────────────────────────────────
+            // ── Inicializa Gun com radisk (persiste localmente) ───────────
             function _initGun() {
                 if (_gun) return _gun;
                 try {
-                    _gun = GUN({ peers: RELAY_PEERS, localStorage: false, radisk: false });
-                    console.log('[GunSync] ✅ Gun inicializado com relays públicos');
+                    // radisk:true = GUN persiste dados no próprio IndexedDB, sobrevive a reload
+                    // Isso permite sync mesmo quando o relay cai brevemente
+                    _gun = GUN({
+                        peers: RELAY_PEERS,
+                        localStorage: false,
+                        radisk: true,
+                        axe: false
+                    });
+
+                    // ── Monitora conexão com peers ──────────────────────────
+                    _gun.on('hi', function(peer) {
+                        _connectedPeers++;
+                        if (!_connected) {
+                            _connected = true;
+                            console.log('[GunSync] ✅ Peer conectado:', peer.url);
+                            _updateConnStatus(true);
+                            // Ao conectar pela primeira vez, empurra dados locais
+                            if (!_initialPushDone) {
+                                _initialPushDone = true;
+                                setTimeout(() => _pushAllLocalData(), 2000);
+                            }
+                        }
+                    });
+
+                    _gun.on('bye', function(peer) {
+                        _connectedPeers = Math.max(0, _connectedPeers - 1);
+                        if (_connectedPeers === 0) {
+                            _connected = false;
+                            console.log('[GunSync] ⚠️ Sem peers conectados');
+                            _updateConnStatus(false);
+                        }
+                    });
+
+                    console.log('[GunSync] ✅ Gun inicializado — aguardando conexão com relay');
                 } catch(e) {
                     console.warn('[GunSync] Erro ao inicializar Gun:', e.message);
                 }
                 return _gun;
+            }
+
+            // ── Atualiza badge de status de conexão na UI ─────────────────
+            function _updateConnStatus(online) {
+                const el = document.getElementById('gunConnStatus');
+                if (!el) return;
+                el.textContent = online ? '🟢 Relay conectado' : '🔴 Relay offline — dados salvos localmente';
+                el.style.color = online ? '#22c55e' : '#f87171';
             }
 
             // ── Nó Gun para uma coleção ───────────────────────────────────
@@ -9534,10 +9598,41 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                 return gun.get('oticavision_' + _storeId + '_' + _roomKey).get(col);
             }
 
+            // ── Push inicial: publica todos os dados locais no relay ──────
+            // Necessário para que o outro browser/dispositivo receba o histórico
+            async function _pushAllLocalData() {
+                if (!_enabled || !_gun) return;
+                console.log('[GunSync] 🔄 Push inicial — enviando dados locais ao relay');
+                try {
+                    const db = await _getDB();
+                    const storeId = _storeId;
+                    const rows = await db.otica_data
+                        .where('store_id').equals(storeId).toArray();
+                    let count = 0;
+                    for (const row of rows) {
+                        const col  = row.collection;
+                        const docId = row.doc_id;
+                        const data  = row.data;
+                        if (!data || !col || !docId) continue;
+                        const node = _node(col);
+                        if (!node) continue;
+                        const clean = JSON.parse(JSON.stringify({ ...data, _gunTs: Date.now() }));
+                        node.get(String(docId)).put(clean);
+                        count++;
+                        // Throttle: não sobrecarregar o relay
+                        if (count % 20 === 0) await new Promise(r => setTimeout(r, 80));
+                    }
+                    console.log('[GunSync] ✅ Push inicial concluído —', count, 'documentos enviados');
+                } catch(e) {
+                    console.warn('[GunSync] Push inicial erro:', e.message);
+                }
+            }
+
             // ── Inicia subscriptions para todas as coleções ───────────────
             function _startSubs(storeId) {
                 _stopSubs();
                 _storeId = storeId;
+                _initialPushDone = false;
                 const cols = Object.values(_COL_MAP).concat(['config']);
                 cols.forEach(col => {
                     const node = _node(col);
@@ -9545,14 +9640,12 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                     node.map().on(async (docData, docId) => {
                         if (!docData || typeof docData !== 'object') return;
                         if (docData._deleted) {
-                            // Deleta do IndexedDB
                             try {
                                 const db = await _getDB();
                                 await db.otica_data
                                     .where('[doc_id+store_id+collection]')
                                     .equals([String(docId), storeId, col])
                                     .delete();
-                                // Atualiza state
                                 const stateKey = Object.keys(_COL_MAP).find(k => _COL_MAP[k] === col);
                                 if (stateKey) {
                                     state[stateKey] = (state[stateKey] || []).filter(i => String(i.id) !== String(docId));
@@ -9561,8 +9654,7 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                             } catch(e) {}
                             return;
                         }
-                        if (_ignoreIds.has(col + ':' + docId)) return; // ignora nossos próprios writes
-                        // Salva no IndexedDB
+                        if (_ignoreIds.has(col + ':' + docId)) return;
                         try {
                             const cleanData = JSON.parse(JSON.stringify(docData));
                             const db = await _getDB();
@@ -9573,7 +9665,6 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                                 data: cleanData,
                                 updated_at: cleanData._updatedAt || new Date().toISOString()
                             });
-                            // Atualiza state
                             if (col === 'config') {
                                 if (docId === 'empresa') {
                                     if (cleanData.company)       Object.assign(state.company, cleanData.company);
@@ -9607,86 +9698,54 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
             }
 
             function _stopSubs() {
-                Object.values(_subs).forEach(node => {
-                    try { node.off(); } catch(e) {}
-                });
+                Object.values(_subs).forEach(node => { try { node.off(); } catch(e) {} });
                 _subs = {};
             }
 
             // ── Publica item individual no Gun ────────────────────────────
             async function _pushItem(col, docId, docData) {
-                if (!_enabled || !_gun) {
-                    // Fallback: publica no localStorage se Gun não está disponível
-                    if (_enabled) _pushLocalStorage(col, docData);
-                    return;
-                }
+                if (!_enabled || !_gun) return;
                 const key = col + ':' + docId;
                 _ignoreIds.add(key);
-                setTimeout(() => _ignoreIds.delete(key), 3000);
+                setTimeout(() => _ignoreIds.delete(key), 5000);
                 try {
                     const node = _node(col);
                     if (!node) return;
                     const clean = JSON.parse(JSON.stringify({ ...docData, _gunTs: Date.now() }));
                     node.get(String(docId)).put(clean);
-                    // Também publica no localStorage para cross-browser
-                    _pushLocalStorage(col, clean);
-                } catch(e) { 
+                } catch(e) {
                     console.warn('[GunSync] pushItem erro:', col, e.message);
-                    // Fallback: tenta localStorage
-                    _pushLocalStorage(col, docData);
                 }
             }
 
-            // ── Sincronização Cross-Browser via localStorage (fallback para GUN) ──
-            function _syncLocalStorage() {
-                // Monitora changes no localStorage de outros navegadores/abas
-                window.addEventListener('storage', function(e) {
-                    if (!e.key || !e.key.startsWith('sync_')) return;
-                    try {
-                        const data = JSON.parse(e.newValue);
-                        const [col, docId] = e.key.split('_').slice(1);
-                        if (!col || !docId || !data) return;
-                        
-                        // Sincroniza com IndexedDB se data veio de outro navegador
-                        LocalFirst.sbUpsertBatch(col, [data]).catch(err => 
-                            console.warn('[CrossBrowser] Erro ao sincronizar:', err.message)
-                        );
-                    } catch(e) { console.warn('[CrossBrowser] Parse error:', e.message); }
-                });
-            }
-            
-            // ── Publica no localStorage para cross-browser sync ───────────────
-            async function _pushLocalStorage(col, docData) {
-                try {
-                    const key = 'sync_' + col + '_' + docData.id;
-                    localStorage.setItem(key, JSON.stringify({...docData, _lsSyncTs: Date.now()}));
-                    // Expira em 30min para não encher localStorage
-                    setTimeout(() => localStorage.removeItem(key), 1800000);
-                } catch(e) { console.warn('[CrossBrowser] localStorage full:', e.message); }
-            }
-
             return {
-                get enabled() { return _enabled; },
-                get roomKey() { return _roomKey; },
+                get enabled()   { return _enabled; },
+                get roomKey()   { return _roomKey; },
+                get connected() { return _connected; },
 
                 // ── Boot: liga sync se habilitado ─────────────────────────
                 boot(storeId) {
                     _storeId = storeId;
-                    const key = 'gun_sync_enabled_' + storeId;
-                    _enabled = localStorage.getItem(key) !== 'false';
+                    _enabled = localStorage.getItem('gun_sync_enabled_' + storeId) !== 'false';
                     _roomKey = _getRoomKey(storeId);
-                    
-                    // Inicia sync cross-browser
-                    _syncLocalStorage();
-                    
                     if (_enabled) {
                         _initGun();
                         _startSubs(storeId);
                         console.log('[GunSync] Boot — sync P2P ativo, room:', _roomKey);
                     } else {
-                        console.log('[GunSync] Boot — sync P2P desativado (somente local)');
+                        console.log('[GunSync] Boot — sync P2P desativado');
                     }
                     this._updateUI();
+                },
+
+                // ── Força re-envio de todos os dados ao relay ─────────────
+                async forcePushAll() {
+                    if (!_enabled) { Toast.show('⚠️ Ative o Sync P2P primeiro', 'warning', 2500); return; }
+                    if (!_gun) _initGun();
+                    _initialPushDone = false;
+                    Toast.show('🔄 Enviando todos os dados ao relay P2P...', 'info', 3000);
+                    await _pushAllLocalData();
+                    Toast.show('✅ Dados enviados! O outro dispositivo vai sincronizar em segundos.', 'success', 5000);
                 },
 
                 // ── Muda de loja ──────────────────────────────────────────
@@ -9706,9 +9765,13 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
 
                 // ── Deleta item (chamado por LocalFirst.deleteItem) ────────
                 deleteItem(table, id) {
-                    if (!id) return;
+                    if (!id || !_enabled || !_gun) return;
                     const col = _COL_MAP[table] || table;
-                    _deleteItem(col, id);
+                    try {
+                        const node = _node(col);
+                        if (!node) return;
+                        node.get(String(id)).put({ _deleted: true, _gunTs: Date.now() });
+                    } catch(e) { console.warn('[GunSync] deleteItem erro:', col, e.message); }
                 },
 
                 // ── Publica config da empresa ──────────────────────────────
@@ -9731,11 +9794,14 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                     _enabled = !!val;
                     localStorage.setItem('gun_sync_enabled_' + (storeId || _storeId), _enabled ? 'true' : 'false');
                     if (_enabled) {
+                        _initialPushDone = false;
                         _initGun();
                         _startSubs(storeId || _storeId);
                         Toast.show('🔄 Sync P2P ativado — room: ' + _roomKey, 'success', 4000);
                     } else {
                         _stopSubs();
+                        _connected = false;
+                        _updateConnStatus(false);
                         Toast.show('📴 Sync P2P desativado — somente local', 'info', 3000);
                     }
                     this._updateUI();
@@ -9766,18 +9832,27 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                     if (toggleEl) toggleEl.checked = _enabled;
                     if (keyEl)    keyEl.textContent = _roomKey || '—';
                     if (statusEl) {
-                        statusEl.textContent = _enabled ? '🟢 Ativo' : '⚫ Desativado';
-                        statusEl.style.color  = _enabled ? '#22c55e' : '#9ca3af';
+                        if (!_enabled) {
+                            statusEl.textContent = '⚫ Desativado';
+                            statusEl.style.color  = '#9ca3af';
+                        } else if (_connected) {
+                            statusEl.textContent = '🟢 Ativo — Relay conectado';
+                            statusEl.style.color  = '#22c55e';
+                        } else {
+                            statusEl.textContent = '🟡 Ativo — aguardando relay...';
+                            statusEl.style.color  = '#f59e0b';
+                        }
                     }
-                    // Drive toggle visual state via JS for cross-browser reliability
-                    const bg = document.getElementById('gunToggleBg');
+                    _updateConnStatus(_connected);
+                    const bg   = document.getElementById('gunToggleBg');
                     const knob = document.getElementById('gunToggleKnob');
-                    if (bg)   bg.style.background   = _enabled ? '#4f46e5' : '#4b5563';
-                    if (knob) knob.style.transform   = _enabled ? 'translateX(24px)' : 'translateX(0)';
-                    // Also update ss-engine panel
+                    if (bg)   bg.style.background = _enabled ? '#4f46e5' : '#4b5563';
+                    if (knob) knob.style.transform = _enabled ? 'translateX(24px)' : 'translateX(0)';
                     const s = id => document.getElementById(id);
                     if (s('ss-engine')) {
-                        s('ss-engine').textContent = _enabled ? 'RxDB + Gun.js P2P' : 'RxDB Local-Only';
+                        s('ss-engine').textContent = _enabled
+                            ? (_connected ? 'RxDB + Gun.js P2P ✅' : 'RxDB + Gun.js P2P ⏳')
+                            : 'RxDB Local-Only';
                     }
                 }
             };
