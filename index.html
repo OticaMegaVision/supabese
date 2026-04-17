@@ -41,17 +41,33 @@
         document.currentScript.parentNode.insertBefore(link, document.currentScript);
     })();
     </script>
-    <link rel="apple-touch-icon" href="icons/icon-192x192.png">
-    <link rel="shortcut icon" href="favicon.ico">
-    <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192x192.png">
-    <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512x512.png">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect fill='%23ff6b00' width='192' height='192'/></svg>">
+    <link rel="shortcut icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect fill='%23ff6b00' width='32' height='32'/></svg>">
+    <!-- NOTA: Para usar ícones reais, gere os arquivos PNG abrindo generate_icons.html no navegador -->
+    <!-- <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192x192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512x512.png"> -->
     <!-- Gere os ícones abrindo generate_icons.html no navegador -->
     <!-- ===== /PWA META TAGS ===== -->
 
     <!-- ===== RXDB LOCAL-FIRST (Dexie.js + BroadcastChannel + Gun.js P2P) ===== -->
-    <script src="https://cdn.jsdelivr.net/npm/dexie@4/dist/dexie.umd.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/gun/gun.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/gun/sea.js"></script>
+    <!-- Verificação de carregamento -->
+    <script>
+    window.addEventListener('load', function() {
+        if (typeof Dexie === 'undefined') {
+            console.warn('[AVISO] Dexie não foi carregado. Ativando fallback de localStorage.');
+            window.Dexie = { db: {} };
+        }
+    });
+    // Timeout de 3s para validar se Dexie foi carregado
+    setTimeout(function() {
+        if (typeof Dexie === 'undefined') {
+            console.error('[ERRO] Dexie não está disponível após 3s. Usando localStorage como fallback.');
+        }
+    }, 3000);
+    </script>
     <!-- ===== /RXDB LOCAL-FIRST ===== -->
 
 
