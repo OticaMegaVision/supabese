@@ -9508,6 +9508,321 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
         };
 
         window.LocalFirst = LocalFirst;
+
+        // ══════════════════════════════════════════════════════════════════════
+        //  ELECTRIC SYNC — módulo de sincronização cross-device via Electric SQL
+        //  Persistência: Supabase REST API (escrita) + Electric HTTP Shape (leitura SSE)
+        //  Config: armazenada em localStorage 'electric_sync_config'
+        // ══════════════════════════════════════════════════════════════════════
+        window.ElectricSync = (function() {
+            const LS_CFG     = 'electric_sync_config';
+            const LS_ENABLED = 'electric_sync_enabled';
+
+            let _cfg        = null;   // { electricUrl, databaseId, apiKey, supabaseUrl, supabaseKey }
+            let _enabled    = false;
+            let _connected  = false;
+            let _storeId    = null;
+            let _abort      = null;   // AbortController para long-polling
+            let _retryTimer = null;
+            let _offset     = '-1';
+            let _polling    = false;
+
+            /* ── helpers localStorage ──────────────────────────────────────── */
+            function _loadCfg() {
+                try { const r = localStorage.getItem(LS_CFG); if (r) _cfg = JSON.parse(r); } catch(e) {}
+            }
+
+            /* ── Supabase REST: upsert de uma linha em otica_data ─────────── */
+            async function _supaUpsert(rows) {
+                if (!_cfg?.supabaseUrl || !_cfg?.supabaseKey) return;
+                try {
+                    const res = await fetch(_cfg.supabaseUrl + '/rest/v1/otica_data', {
+                        method:  'POST',
+                        headers: {
+                            'Content-Type':  'application/json',
+                            'apikey':        _cfg.supabaseKey,
+                            'Authorization': 'Bearer ' + _cfg.supabaseKey,
+                            'Prefer':        'resolution=merge-duplicates'
+                        },
+                        body: JSON.stringify(Array.isArray(rows) ? rows : [rows])
+                    });
+                    if (!res.ok) console.warn('[ElectricSync] upsert HTTP', res.status, await res.text());
+                } catch(e) { console.warn('[ElectricSync] upsert:', e.message); }
+            }
+
+            /* ── Supabase REST: delete ─────────────────────────────────────── */
+            async function _supaDelete(storeId, col, docId) {
+                if (!_cfg?.supabaseUrl || !_cfg?.supabaseKey) return;
+                try {
+                    await fetch(
+                        _cfg.supabaseUrl + '/rest/v1/otica_data' +
+                        '?doc_id=eq.' + encodeURIComponent(docId) +
+                        '&store_id=eq.' + encodeURIComponent(storeId) +
+                        '&collection=eq.' + encodeURIComponent(col),
+                        {
+                            method:  'DELETE',
+                            headers: {
+                                'apikey':        _cfg.supabaseKey,
+                                'Authorization': 'Bearer ' + _cfg.supabaseKey
+                            }
+                        }
+                    );
+                } catch(e) { console.warn('[ElectricSync] delete:', e.message); }
+            }
+
+            /* ── Aplica row recebido do Electric ao IndexedDB + state ──────── */
+            async function _applyRow(row, storeId) {
+                // Formato Electric SQL v1: { key, value:{...}, headers:{ operation } }
+                // Também aceita formato plano vindo do Supabase initial fetch
+                const op  = row?.headers?.operation || 'insert';
+                const val = row?.value || row;
+                const { doc_id, store_id, collection, data } = val || {};
+                if (!doc_id || !store_id || !collection) return;
+                if (store_id !== storeId) return;
+
+                if (op === 'delete') {
+                    try { await sbDeleteDoc(store_id, collection, doc_id); } catch(e) {}
+                    return;
+                }
+                const parsed = data
+                    ? (typeof data === 'string' ? JSON.parse(data) : data)
+                    : null;
+                if (!parsed) return;
+
+                try { await sbUpsertDoc(store_id, collection, doc_id, parsed); } catch(e) {}
+
+                // Atualiza state[] em memória
+                const sk = Object.keys(_COL_MAP).find(k => _COL_MAP[k] === collection);
+                if (sk && window.state && Array.isArray(state[sk])) {
+                    const idx = state[sk].findIndex(i => String(i.id) === String(doc_id));
+                    if (idx >= 0) state[sk][idx] = parsed; else state[sk].push(parsed);
+                }
+            }
+
+            /* ── Long-polling loop contra o Electric HTTP Shape API ────────── */
+            async function _poll(storeId) {
+                if (!_cfg?.electricUrl || !_cfg?.databaseId || !_cfg?.apiKey) return;
+                if (_polling) return;
+                _polling = true;
+
+                const where = "store_id = '" + storeId + "'";
+                let currentOffset = _offset;
+
+                while (_enabled) {
+                    const url = _cfg.electricUrl + '/v1/shape' +
+                        '?table=otica_data' +
+                        '&where=' + encodeURIComponent(where) +
+                        '&database_id=' + encodeURIComponent(_cfg.databaseId) +
+                        '&secret='      + encodeURIComponent(_cfg.apiKey) +
+                        '&offset='      + encodeURIComponent(currentOffset) +
+                        '&live=true';
+
+                    if (_abort) _abort.abort();
+                    _abort = new AbortController();
+                    try {
+                        const res = await fetch(url, { signal: _abort.signal });
+
+                        if (res.status === 409) {
+                            // Must-refetch: reset offset
+                            currentOffset = '-1'; _offset = '-1';
+                            await new Promise(r => setTimeout(r, 500));
+                            continue;
+                        }
+                        if (!res.ok) {
+                            console.warn('[ElectricSync] HTTP', res.status);
+                            _connected = false; _updateUI();
+                            await new Promise(r => setTimeout(r, 5000));
+                            continue;
+                        }
+
+                        // Lê novo offset do header
+                        const newOff = res.headers.get('electric-offset');
+                        if (newOff) { currentOffset = newOff; _offset = newOff; }
+
+                        const text = await res.text();
+                        if (text && text.trim()) {
+                            try {
+                                const msgs = JSON.parse(text);
+                                if (Array.isArray(msgs)) {
+                                    let changed = false;
+                                    for (const msg of msgs) {
+                                        // Ignora mensagens de controle (up-to-date, must-refetch)
+                                        if (msg?.headers?.control) {
+                                            if (msg.headers.control === 'must-refetch') {
+                                                currentOffset = '-1'; _offset = '-1';
+                                            }
+                                            continue;
+                                        }
+                                        await _applyRow(msg, storeId);
+                                        changed = true;
+                                    }
+                                    if (changed) {
+                                        window._lastSyncTime = new Date().toISOString();
+                                        try { LocalFirst._scheduleDashUpdate?.(); } catch(e) {}
+                                    }
+                                }
+                            } catch(e) { console.warn('[ElectricSync] parse:', e.message); }
+                        }
+
+                        if (!_connected) { _connected = true; _updateUI(); }
+
+                    } catch(e) {
+                        if (e.name === 'AbortError') break;
+                        console.warn('[ElectricSync] poll err:', e.message);
+                        _connected = false; _updateUI();
+                        await new Promise(r => setTimeout(r, 5000));
+                    }
+                }
+                _polling = false;
+            }
+
+            /* ── UI ─────────────────────────────────────────────────────────── */
+            function _updateUI() {
+                const $ = id => document.getElementById(id);
+                const toggle     = $('electricSyncToggle');
+                const toggleBg   = $('electricToggleBg');
+                const toggleKnob = $('electricToggleKnob');
+                const status     = $('electricSyncStatus');
+                const cfgBlock   = $('electricConfigBlock');
+                const connBlock  = $('electricConnectedBlock');
+
+                if (toggle)     toggle.checked = _enabled;
+                if (toggleBg)   toggleBg.style.background   = _connected ? '#3ecf8e' : (_enabled ? '#f59e0b' : '#4b5563');
+                if (toggleKnob) toggleKnob.style.left        = _enabled ? 'calc(100% - 25px)' : '3px';
+
+                if (status) {
+                    if (_connected) {
+                        status.textContent = '🟢 Electric Sync ativo — tempo real'; status.style.color = '#3ecf8e';
+                    } else if (_enabled) {
+                        status.textContent = '🟡 Conectando ao Electric Cloud...'; status.style.color = '#f59e0b';
+                    } else {
+                        status.textContent = '⚪ Electric Sync desativado';         status.style.color = '#9ca3af';
+                    }
+                }
+                if (cfgBlock)  cfgBlock.style.display  = (_enabled && !_cfg) ? '' : 'none';
+                if (connBlock) connBlock.style.display  = (_enabled && _cfg)  ? '' : 'none';
+                try { LocalFirst._updatePanel?.(); } catch(e) {}
+            }
+
+            /* ── API pública ────────────────────────────────────────────────── */
+            return {
+                get enabled()   { return _enabled; },
+                get connected() { return _connected; },
+
+                boot(storeId) {
+                    _loadCfg();
+                    _enabled = localStorage.getItem(LS_ENABLED) === 'true';
+                    _storeId = storeId || window._currentStore || 'barueri';
+                    if (_enabled && _cfg) _poll(_storeId);
+                    _updateUI();
+                    console.log('[ElectricSync] boot — enabled:', _enabled, 'config:', !!_cfg);
+                },
+
+                saveConfig(cfg) {
+                    _cfg = cfg;
+                    localStorage.setItem(LS_CFG, JSON.stringify(cfg));
+                    _enabled = true;
+                    localStorage.setItem(LS_ENABLED, 'true');
+                    _offset = '-1';
+                    const sid = window._currentStore || 'barueri';
+                    if (_abort) { _abort.abort(); _abort = null; }
+                    _polling = false;
+                    _poll(sid);
+                    _updateUI();
+                    if (window.Toast) Toast.show('✅ Electric Sync configurado!', 'success', 3000);
+                },
+
+                setEnabled(bool) {
+                    _enabled = !!bool;
+                    localStorage.setItem(LS_ENABLED, _enabled ? 'true' : 'false');
+                    if (_enabled) {
+                        _loadCfg();
+                        if (_cfg) { _offset = '-1'; _poll(window._currentStore || 'barueri'); }
+                    } else {
+                        if (_abort) { _abort.abort(); _abort = null; }
+                        _polling = false; _connected = false;
+                    }
+                    _updateUI();
+                },
+
+                async pushItem(table, item) {
+                    if (!_enabled || !_cfg?.supabaseUrl || !item?.id) return;
+                    const col     = _COL_MAP[table] || table;
+                    const storeId = window._currentStore || 'barueri';
+                    await _supaUpsert({
+                        doc_id:     String(item.id),
+                        store_id:   storeId,
+                        collection: col,
+                        data:       JSON.stringify({ ...item, _updatedAt: new Date().toISOString(), _store: storeId }),
+                        updated_at: new Date().toISOString()
+                    });
+                },
+
+                async deleteItem(table, id) {
+                    if (!_enabled || !_cfg?.supabaseUrl || !id) return;
+                    const col     = _COL_MAP[table] || table;
+                    const storeId = window._currentStore || 'barueri';
+                    await _supaDelete(storeId, col, id);
+                },
+
+                async pushConfig() {
+                    if (!_enabled || !_cfg?.supabaseUrl) return;
+                    const storeId = window._currentStore || 'barueri';
+                    await _supaUpsert({
+                        doc_id:     'empresa',
+                        store_id:   storeId,
+                        collection: 'config',
+                        data:       JSON.stringify({
+                            _doc_id: 'empresa',
+                            company: window.state?.company,
+                            notificacoes: window.state?.notificacoes,
+                            _updatedAt: new Date().toISOString()
+                        }),
+                        updated_at: new Date().toISOString()
+                    });
+                },
+
+                async forcePushAll() {
+                    if (!_enabled || !_cfg?.supabaseUrl) {
+                        if (window.Toast) Toast.show('⚠️ Configure o Electric Sync primeiro', 'warning', 2500); return;
+                    }
+                    const storeId = window._currentStore || 'barueri';
+                    if (window.Toast) Toast.show('☁️ Enviando todos os dados ao Electric Cloud...', 'info', 2000);
+                    try {
+                        const db   = await _getDB();
+                        const rows = await db.otica_data.where('store_id').equals(storeId).toArray();
+                        const payload = rows.map(r => ({
+                            doc_id:     String(r.doc_id),
+                            store_id:   r.store_id,
+                            collection: r.collection,
+                            data:       typeof r.data === 'string' ? r.data : JSON.stringify(r.data),
+                            updated_at: r.updated_at || new Date().toISOString()
+                        }));
+                        const CHUNK = 50;
+                        for (let i = 0; i < payload.length; i += CHUNK) {
+                            await _supaUpsert(payload.slice(i, i + CHUNK));
+                        }
+                        if (window.Toast) Toast.show('✅ ' + payload.length + ' docs enviados!', 'success', 3000);
+                    } catch(e) {
+                        if (window.Toast) Toast.show('❌ Erro: ' + e.message, 'danger', 4000);
+                    }
+                },
+
+                switchStore(lojaId) {
+                    if (!_enabled || !_cfg) return;
+                    if (_abort) { _abort.abort(); _abort = null; }
+                    _polling = false; _connected = false; _offset = '-1';
+                    _poll(lojaId || window._currentStore || 'barueri');
+                    _updateUI();
+                },
+
+                _updateUI: _updateUI
+            };
+        })();
+        // ══════════════════════════════════════════════════════════════════════
+        //  /ELECTRIC SYNC
+        // ══════════════════════════════════════════════════════════════════════
+
         // Hooks: quando LocalFirst salva um item, propaga ao Electric Cloud
         const _origPushItem   = LocalFirst.pushItem?.bind(LocalFirst);
         const _origDeleteItem = LocalFirst.deleteItem?.bind(LocalFirst);
