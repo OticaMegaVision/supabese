@@ -7600,23 +7600,26 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                                 </details>
                                 <div style="display:grid;grid-template-columns:1fr;gap:0.5rem;">
                                     <div>
-                                        <label style="color:#9ca3af;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Electric API URL</label>
-                                        <input id="electricUrlInput" type="text" placeholder="https://api.electric-sql.cloud" style="width:100%;background:#0f172a;color:#a6e3a1;border:1px solid #1e3a2f;border-radius:6px;padding:7px 10px;font-size:0.8rem;font-family:monospace;">
+                                        <label style="color:#9ca3af;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Electric API URL <span style="color:#6ee7b7;font-weight:400;text-transform:none;">(fixo — não altere)</span></label>
+                                        <input id="electricUrlInput" type="text" value="https://api.electric-sql.cloud" placeholder="https://api.electric-sql.cloud" style="width:100%;background:#0f172a;color:#a6e3a1;border:1px solid #1e3a2f;border-radius:6px;padding:7px 10px;font-size:0.8rem;font-family:monospace;">
+                                        <div style="color:#f87171;font-size:0.68rem;margin-top:2px;">⚠️ Deve começar com <strong>https://api.electric-sql.cloud</strong> — nunca cole aqui a Connection URL do Supabase</div>
                                     </div>
                                     <div>
-                                        <label style="color:#9ca3af;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Electric Database ID</label>
-                                        <input id="electricDbIdInput" type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style="width:100%;background:#0f172a;color:#a6e3a1;border:1px solid #1e3a2f;border-radius:6px;padding:7px 10px;font-size:0.8rem;font-family:monospace;">
+                                        <label style="color:#9ca3af;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Electric Database ID <span style="color:#6ee7b7;font-weight:400;text-transform:none;">(Source do dashboard)</span></label>
+                                        <input id="electricDbIdInput" type="text" placeholder="svc-balanced-earthworm-xxxxxxx" style="width:100%;background:#0f172a;color:#a6e3a1;border:1px solid #1e3a2f;border-radius:6px;padding:7px 10px;font-size:0.8rem;font-family:monospace;">
+                                        <div style="color:#9ca3af;font-size:0.68rem;margin-top:2px;">No dashboard Electric SQL → Overview → Auth → campo <strong>Source</strong></div>
                                     </div>
                                     <div>
-                                        <label style="color:#9ca3af;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Electric API Key</label>
+                                        <label style="color:#9ca3af;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Electric API Key (Secret)</label>
                                         <input id="electricApiKeyInput" type="password" placeholder="ey..." style="width:100%;background:#0f172a;color:#a6e3a1;border:1px solid #1e3a2f;border-radius:6px;padding:7px 10px;font-size:0.8rem;font-family:monospace;">
+                                        <div style="color:#9ca3af;font-size:0.68rem;margin-top:2px;">No dashboard Electric SQL → Overview → Auth → campo <strong>Secret</strong> (JWT longo)</div>
                                     </div>
                                     <div style="border-top:1px solid rgba(62,207,142,0.2);padding-top:0.5rem;margin-top:0.25rem;">
-                                        <label style="color:#fbbf24;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Supabase URL (para escritas)</label>
+                                        <label style="color:#fbbf24;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Supabase URL</label>
                                         <input id="electricSupaUrlInput" type="text" placeholder="https://xxxx.supabase.co" style="width:100%;background:#0f172a;color:#fde68a;border:1px solid #2d2000;border-radius:6px;padding:7px 10px;font-size:0.8rem;font-family:monospace;">
                                     </div>
                                     <div>
-                                        <label style="color:#fbbf24;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Supabase Anon Key (para escritas)</label>
+                                        <label style="color:#fbbf24;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Supabase Anon Key</label>
                                         <input id="electricSupaKeyInput" type="password" placeholder="ey..." style="width:100%;background:#0f172a;color:#fde68a;border:1px solid #2d2000;border-radius:6px;padding:7px 10px;font-size:0.8rem;font-family:monospace;">
                                     </div>
                                 </div>
@@ -7628,6 +7631,8 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                                         const sUrl  = document.getElementById('electricSupaUrlInput').value.trim();
                                         const sKey  = document.getElementById('electricSupaKeyInput').value.trim();
                                         if (!eUrl || !eDbId || !eKey) { Toast.show('⚠️ Preencha URL, Database ID e API Key do Electric','warning',2500); return; }
+                                        if (!eUrl.startsWith('https://')) { Toast.show('❌ Electric API URL deve começar com https:// — não cole a Connection URL do Supabase aqui!','danger',5000); return; }
+                                        if (eUrl.includes('supabase.co') || eUrl.startsWith('postgres')) { Toast.show('❌ Campo errado! A URL do Electric é https://api.electric-sql.cloud — o que você colou é a URL do banco Postgres/Supabase.','danger',6000); return; }
                                         ElectricSync.saveConfig({ electricUrl: eUrl, databaseId: eDbId, apiKey: eKey, supabaseUrl: sUrl, supabaseKey: sKey });
                                     })()">
                                     <i class="fas fa-plug"></i> Salvar e Conectar ao Electric Cloud
@@ -9612,9 +9617,9 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                     const url = _cfg.electricUrl + '/v1/shape' +
                         '?table=otica_data' +
                         '&where=' + encodeURIComponent(where) +
-                        '&database_id=' + encodeURIComponent(_cfg.databaseId) +
-                        '&secret='      + encodeURIComponent(_cfg.apiKey) +
-                        '&offset='      + encodeURIComponent(currentOffset) +
+                        '&source_id=' + encodeURIComponent(_cfg.databaseId) +
+                        '&secret='    + encodeURIComponent(_cfg.apiKey) +
+                        '&offset='    + encodeURIComponent(currentOffset) +
                         '&live=true';
 
                     if (_abort) _abort.abort();
