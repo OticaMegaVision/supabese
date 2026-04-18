@@ -9610,11 +9610,17 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                 if (_polling) return;
                 _polling = true;
 
+                // Extrai apenas a origem para evitar duplicação se o usuário
+                // colar a URL completa (ex: https://api.electric-sql.cloud/v1/shape?...)
+                let _baseUrl;
+                try { _baseUrl = new URL(_cfg.electricUrl).origin; }
+                catch(e) { _baseUrl = _cfg.electricUrl.split('/v1')[0].split('?')[0]; }
+
                 const where = "store_id = '" + storeId + "'";
                 let currentOffset = _offset;
 
                 while (_enabled) {
-                    const url = _cfg.electricUrl + '/v1/shape' +
+                    const url = _baseUrl + '/v1/shape' +
                         '?table=otica_data' +
                         '&where=' + encodeURIComponent(where) +
                         '&source_id=' + encodeURIComponent(_cfg.databaseId) +
@@ -9724,6 +9730,8 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                 },
 
                 saveConfig(cfg) {
+                    // Normaliza: mantém só a origem, descarta path/query que o usuário possa ter colado
+                    try { const u = new URL(cfg.electricUrl); cfg.electricUrl = u.origin; } catch(e) {}
                     _cfg = cfg;
                     localStorage.setItem(LS_CFG, JSON.stringify(cfg));
                     _enabled = true;
@@ -9734,7 +9742,8 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                     _polling = false;
                     _poll(sid);
                     _updateUI();
-                    if (window.Toast) Toast.show('✅ Electric Sync configurado!', 'success', 3000);
+                    console.log('[ElectricSync] config salva — electricUrl normalizado:', cfg.electricUrl);
+                    if (window.Toast) Toast.show('✅ Electric Sync configurado! URL: ' + cfg.electricUrl, 'success', 4000);
                 },
 
                 setEnabled(bool) {
