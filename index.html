@@ -8438,13 +8438,19 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                 const storeId = window._currentStore || 'barueri';
 
                 // BroadcastChannel: recebe mudanças de outras abas
+                // FIX LOOP: debounce de 400ms para agrupar múltiplos broadcasts
+                // de um único saveData() em um único sync, evitando re-renders em cascata.
                 if (_bc) {
+                    let _bcDebounceTimer = null;
                     _bc.onmessage = (ev) => {
                         const msg = ev.data;
                         if (!msg || msg._origin === _bcId) return;
                         if (msg.type === 'upsert' || msg.type === 'delete' || msg.type === 'batch' || msg.type === 'deleteStore') {
                             if (!this._realtimePaused) {
-                                this.sync('broadcast').catch(() => {});
+                                clearTimeout(_bcDebounceTimer);
+                                _bcDebounceTimer = setTimeout(() => {
+                                    this.sync('broadcast').catch(() => {});
+                                }, 400);
                             }
                         }
                     };
@@ -8452,7 +8458,7 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
 
                 // Visibilidade: ao voltar para aba, re-sincroniza
                 document.addEventListener('visibilitychange', () => {
-                    if (document.visibilityState === 'visible') {
+                    if (document.visibilityState === 'visible' && !this._realtimePaused) {
                         this.sync('visibility').catch(() => {});
                     }
                 });
@@ -10644,6 +10650,10 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                 comprovante: "✅ *COMPROVANTE DE PAGAMENTO*\n━━━━━━━━━━━━━━━━━━━━\n🏪 *{{EMPRESA}}*\n📍 {{ENDERECO}}\n━━━━━━━━━━━━━━━━━━━━\n\n👤 *Cliente:* {{NOME}}\n🆔 *CPF:* {{CPF}}\n\n📋 *OS Nº:* {{OS}}\n🔢 *Parcela:* {{PARCELA}}\n📅 *Vencimento:* {{VENCIMENTO}}\n📅 *Data Pagamento:* {{DATA_PAGAMENTO}}\n\n💵 *VALOR PAGO: {{VALOR}}*\n💳 *Forma:* {{FORMA_PAGAMENTO}}\n\n✅ *PAGAMENTO CONFIRMADO*\n\n━━━━━━━━━━━━━━━━━━━━\n📞 {{TELEFONE}}\n_Documento gerado por {{EMPRESA}}_"
             }
         };
+
+        // FIX COLEÇÕES: expõe state globalmente para que RxDBPanel.refresh()
+        // e outros módulos externos possam acessar window.state corretamente.
+        window.state = state;
 
         // Inicializa campos NF-e no state se não existirem (BUG FIX #9)
         if (!state.nfe_historico) state.nfe_historico = [];
