@@ -4644,7 +4644,6 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                 <div class="menu-item" data-section="expenses" role="button" tabindex="0"><i class="fas fa-money-bill-wave"></i><span>Despesas</span></div>
                 <div class="menu-item" data-section="reports" role="button" tabindex="0"><i class="fas fa-chart-bar"></i><span>Relatórios</span></div>
                 <div class="menu-item" data-section="config" role="button" tabindex="0"><i class="fas fa-cog"></i><span>Configurações</span></div>
-                <div class="sidebar-section-label">Fiscal</div>
             </nav>
             <div class="sidebar-footer">
                 <button class="theme-toggle" id="themeToggle" aria-label="Alternar modo escuro"><i class="fas fa-moon"></i><span>Modo Escuro</span></button>
@@ -7431,32 +7430,83 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                             </div>
                         </div>
 
-                        <!-- STATUS RxDB v17 LOCAL-FIRST -->
-                        <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:12px;padding:1.5rem;margin-bottom:1.5rem;">
-                            <h4 style="color:#166534;margin-bottom:0.75rem;display:flex;align-items:center;gap:0.5rem;">
-                                <i class="fas fa-database" style="color:#3ecf8e;"></i> RxDB v17 Local-First — IndexedDB + OPFS
-                            </h4>
-                            <p style="color:#166534;font-size:0.85rem;margin-bottom:1rem;">
-                                O sistema usa <strong>RxDB v17</strong> com <strong>IndexedDB</strong> e <strong>OPFS</strong> como banco de dados local.
-                                Os dados são armazenados <strong>diretamente no navegador</strong>, funcionam offline, sincronizam entre abas via <strong>BroadcastChannel</strong> e entre dispositivos via <strong>Google Drive</strong> ou <strong>OneDrive</strong>.
-                            </p>
-                            <div style="background:#1e1e2e;color:#a6e3a1;font-family:monospace;font-size:0.78rem;padding:1rem;border-radius:8px;line-height:1.7;margin-bottom:1rem;">
-  <span style="color:#cba6f7;">Engine:</span>   RxDB v17 — Local-First<br>
-  <span style="color:#cba6f7;">Storage:</span>  IndexedDB (primário) + OPFS (quando disponível)<br>
-  <span style="color:#cba6f7;">Tabela:</span>   otica_data<br>
-  <span style="color:#cba6f7;">Cross-tab:</span> BroadcastChannel (sync em tempo real entre abas)<br>
-  <span style="color:#cba6f7;">Cloud:</span>    Google Drive ou OneDrive (sem servidor próprio)<br>
-  <span style="color:#cba6f7;">Offline:</span>  ✅ Funciona completamente sem internet
+                        <!-- STATUS RxDB v17 LOCAL-FIRST — PAINEL PROFISSIONAL -->
+                        <div id="rxdbPanel" style="background:linear-gradient(135deg,#0d1117,#161b22);border:1px solid #30363d;border-radius:14px;padding:1.5rem;margin-bottom:1.5rem;color:#e6edf3;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:1rem;">
+                                <h4 style="margin:0;color:#3ecf8e;display:flex;align-items:center;gap:0.6rem;font-size:1rem;">
+                                    <i class="fas fa-database"></i> RxDB v17 — Local-First Engine
+                                    <span id="rxdbStatusDot" style="width:9px;height:9px;border-radius:50%;background:#3ecf8e;display:inline-block;box-shadow:0 0 8px #3ecf8e;animation:rxdbPulse 2s infinite;"></span>
+                                </h4>
+                                <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
+                                    <button class="btn btn-sm" style="background:#21262d;color:#3ecf8e;border:1px solid #30363d;font-size:0.72rem;padding:4px 10px;" onclick="RxDBPanel.refresh()">
+                                        <i class="fas fa-sync-alt"></i> Atualizar
+                                    </button>
+                                    <button class="btn btn-sm" style="background:#21262d;color:#58a6ff;border:1px solid #30363d;font-size:0.72rem;padding:4px 10px;" onclick="LocalFirst.checkDB()">
+                                        <i class="fas fa-stethoscope"></i> Diagnosticar
+                                    </button>
+                                </div>
                             </div>
-                            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
-                                <button class="btn btn-sm" style="background:#3ecf8e;color:#000;font-weight:700;" onclick="LocalFirst.sync('manual')">
-                                    <i class="fas fa-sync"></i> Recarregar dados
-                                </button>
-                                <button class="btn btn-sm" style="background:#3ecf8e;color:#000;font-weight:700;" onclick="LocalFirst.checkDB()">
-                                    <i class="fas fa-database"></i> Verificar IndexedDB
-                                </button>
+
+                            <!-- Cards de status em tempo real -->
+                            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:0.6rem;margin-bottom:1rem;">
+                                <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:0.75rem;text-align:center;">
+                                    <div style="font-size:0.62rem;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Engine</div>
+                                    <div style="font-size:0.85rem;font-weight:700;color:#3ecf8e;font-family:monospace;">RxDB v17</div>
+                                    <div style="font-size:0.62rem;color:#58a6ff;">IndexedDB + OPFS</div>
+                                </div>
+                                <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:0.75rem;text-align:center;">
+                                    <div style="font-size:0.62rem;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Documentos</div>
+                                    <div id="rxdbTotalDocs" style="font-size:1.3rem;font-weight:700;color:#f0f6fc;">—</div>
+                                    <div style="font-size:0.62rem;color:#8b949e;">no IndexedDB</div>
+                                </div>
+                                <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:0.75rem;text-align:center;">
+                                    <div style="font-size:0.62rem;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Armazenamento</div>
+                                    <div id="rxdbStorageUsed" style="font-size:1rem;font-weight:700;color:#f0f6fc;">—</div>
+                                    <div id="rxdbStorageQuota" style="font-size:0.62rem;color:#8b949e;">calculando…</div>
+                                </div>
+                                <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:0.75rem;text-align:center;">
+                                    <div style="font-size:0.62rem;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">OPFS</div>
+                                    <div id="rxdbOpfsStatus" style="font-size:0.85rem;font-weight:700;color:#8b949e;">—</div>
+                                    <div style="font-size:0.62rem;color:#8b949e;">Origin Private FS</div>
+                                </div>
+                                <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:0.75rem;text-align:center;">
+                                    <div style="font-size:0.62rem;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Modo Offline</div>
+                                    <div style="font-size:0.85rem;font-weight:700;color:#3ecf8e;">✅ Pronto</div>
+                                    <div id="rxdbNetworkStatus" style="font-size:0.62rem;color:#8b949e;">—</div>
+                                </div>
+                                <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:0.75rem;text-align:center;">
+                                    <div style="font-size:0.62rem;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Cross-Tab Sync</div>
+                                    <div style="font-size:0.75rem;font-weight:700;color:#f78166;">BroadcastChannel</div>
+                                    <div style="font-size:0.62rem;color:#3ecf8e;">✅ Ativo</div>
+                                </div>
+                            </div>
+
+                            <!-- Contagem por coleção -->
+                            <div style="margin-bottom:1rem;">
+                                <div style="font-size:0.68rem;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.5rem;">Registros por coleção</div>
+                                <div id="rxdbCollections" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:0.4rem;">
+                                    <div style="text-align:center;color:#484f58;font-size:0.75rem;padding:0.4rem;">Carregando…</div>
+                                </div>
+                            </div>
+
+                            <!-- Barra de uso de armazenamento -->
+                            <div style="margin-bottom:0.75rem;">
+                                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                                    <span style="font-size:0.68rem;color:#8b949e;">Uso do armazenamento local</span>
+                                    <span id="rxdbStoragePct" style="font-size:0.68rem;color:#8b949e;">—</span>
+                                </div>
+                                <div style="background:#21262d;border-radius:4px;height:6px;overflow:hidden;">
+                                    <div id="rxdbStorageBar" style="height:100%;width:0%;background:linear-gradient(90deg,#3ecf8e,#58a6ff);border-radius:4px;transition:width 0.6s ease;"></div>
+                                </div>
+                            </div>
+
+                            <div style="font-size:0.65rem;color:#484f58;text-align:right;">
+                                Última atualização: <span id="rxdbLastRefresh">—</span>
                             </div>
                         </div>
+                        <style>
+                        @keyframes rxdbPulse { 0%,100%{opacity:1;box-shadow:0 0 8px #3ecf8e} 50%{opacity:0.4;box-shadow:none} }
+                        </style>
 
                         <!-- CLOUD SYNC — GOOGLE DRIVE + ONEDRIVE -->
                         <div style="background:linear-gradient(135deg,#0a1628,#0d2137);border:1px solid #3b82f6;border-radius:12px;padding:1.5rem;margin-bottom:1.5rem;">
@@ -8556,6 +8606,105 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
         };
         window.LocalFirst = LocalFirst;
 
+        // ── RxDBPanel — painel de monitoramento em tempo real ──────────────
+        window.RxDBPanel = {
+            async refresh() {
+                const cols = [
+                    { key:'clients',       icon:'👥', label:'Clientes' },
+                    { key:'sales',         icon:'🛒', label:'Vendas' },
+                    { key:'products',      icon:'📦', label:'Produtos' },
+                    { key:'expenses',      icon:'💸', label:'Despesas' },
+                    { key:'prescriptions', icon:'👓', label:'Receitas' },
+                    { key:'suppliers',     icon:'🚚', label:'Fornecedores' },
+                    { key:'services',      icon:'🔧', label:'Serviços' }
+                ];
+                let totalMem = 0;
+                const colsEl = document.getElementById('rxdbCollections');
+                if (colsEl) {
+                    colsEl.innerHTML = cols.map(c => {
+                        const n = (window.state?.[c.key] || []).length;
+                        totalMem += n;
+                        const color = n > 0 ? '#3ecf8e' : '#484f58';
+                        return `<div style="background:#21262d;border:1px solid #30363d;border-radius:6px;padding:6px 8px;text-align:center;">
+                            <div style="font-size:0.7rem;color:#8b949e;">${c.icon} ${c.label}</div>
+                            <div style="font-size:1.05rem;font-weight:700;color:${color};">${n}</div>
+                        </div>`;
+                    }).join('');
+                }
+                // Conta documentos reais no IDB
+                try {
+                    const DB_NAME = 'OticaVisionPro_v17', DB_STORE_NAME = 'otica_data';
+                    await new Promise((res) => {
+                        const req = indexedDB.open(DB_NAME);
+                        req.onsuccess = (e) => {
+                            const db = e.target.result;
+                            const stores = Array.from(db.objectStoreNames);
+                            if (!stores.length) { db.close(); res(); return; }
+                            const storeName = stores.includes(DB_STORE_NAME) ? DB_STORE_NAME : stores[0];
+                            const tx = db.transaction(storeName, 'readonly');
+                            tx.objectStore(storeName).count().onsuccess = (ev) => {
+                                const el = document.getElementById('rxdbTotalDocs');
+                                if (el) el.textContent = ev.target.result;
+                                db.close(); res();
+                            };
+                        };
+                        req.onerror = () => {
+                            const el = document.getElementById('rxdbTotalDocs');
+                            if (el) el.textContent = totalMem;
+                            res();
+                        };
+                    });
+                } catch(_) {
+                    const el = document.getElementById('rxdbTotalDocs');
+                    if (el) el.textContent = totalMem;
+                }
+                // Armazenamento via Storage Estimate API
+                if (navigator.storage?.estimate) {
+                    try {
+                        const est  = await navigator.storage.estimate();
+                        const used = est.usage  || 0;
+                        const quot = est.quota  || 1;
+                        const pct  = Math.min(100, (used / quot) * 100);
+                        const fmt  = v => v >= 1048576 ? (v/1048576).toFixed(1)+' MB' : Math.round(v/1024)+' KB';
+                        const s = (id,v) => { const e = document.getElementById(id); if(e) e.textContent = v; };
+                        s('rxdbStorageUsed',  fmt(used));
+                        s('rxdbStorageQuota', 'de ' + fmt(quot) + ' disponíveis');
+                        s('rxdbStoragePct',   pct.toFixed(1) + '%');
+                        const bar = document.getElementById('rxdbStorageBar');
+                        if (bar) {
+                            bar.style.width = pct + '%';
+                            bar.style.background = pct > 80
+                                ? 'linear-gradient(90deg,#f78166,#ff6b00)'
+                                : 'linear-gradient(90deg,#3ecf8e,#58a6ff)';
+                        }
+                    } catch(_) {}
+                }
+                // OPFS
+                const opfsEl = document.getElementById('rxdbOpfsStatus');
+                if (opfsEl) {
+                    try {
+                        await navigator.storage.getDirectory();
+                        opfsEl.textContent = '✅ Ativo'; opfsEl.style.color = '#3ecf8e';
+                    } catch(_) {
+                        opfsEl.textContent = '⚠️ N/D';  opfsEl.style.color = '#f78166';
+                    }
+                }
+                // Rede
+                const netEl = document.getElementById('rxdbNetworkStatus');
+                if (netEl) netEl.textContent = navigator.onLine ? '🌐 Online' : '📴 Offline';
+                // Timestamp
+                const tsEl = document.getElementById('rxdbLastRefresh');
+                if (tsEl) tsEl.textContent = new Date().toLocaleTimeString('pt-BR');
+            }
+        };
+        // Auto-refresh do painel quando a aba Backup estiver visível
+        setInterval(() => {
+            if (document.getElementById('tabBackup')?.style.display !== 'none') {
+                window.RxDBPanel?.refresh();
+            }
+        }, 30000);
+        window.addEventListener('load', () => setTimeout(() => window.RxDBPanel?.refresh(), 2000));
+
         // ══════════════════════════════════════════════════════════════════════
         //  ELECTRIC SYNC — módulo de sincronização cross-device via Google Drive / OneDrive
         //  Persistência: IndexedDB nativo (RxDB v17) — escrita e leitura locais
@@ -8647,51 +8796,48 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                     Toast.show('⚠️ Informe o Client ID do Google Cloud Console para conectar.', 'warning', 5000);
                     return;
                 }
-                const verifier  = _randomStr(32);
-                const challenge = await _pkceChallenge(verifier);
+                // ── Implicit Flow (token) ── retorna access_token direto no hash
+                // Não exige client_secret nem backend — funciona 100% em PWA/SPA
+                // IMPORTANTE: no Google Cloud Console, configure o OAuth client como
+                // "Aplicativo da Web" e adicione a origem e redirect_uri autorizados.
                 const state_val = _randomStr(16);
-                sessionStorage.setItem('gdrive_verifier', verifier);
-                sessionStorage.setItem('gdrive_state',    state_val);
-                sessionStorage.setItem('gdrive_client',   clientId);
+                sessionStorage.setItem('gdrive_state',  state_val);
+                sessionStorage.setItem('gdrive_client', clientId);
                 const params = new URLSearchParams({
-                    client_id:             clientId,
-                    redirect_uri:          location.origin + location.pathname,
-                    response_type:         'code',
-                    scope:                 'https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/drive.file',
-                    access_type:           'offline',
-                    code_challenge:        challenge,
-                    code_challenge_method: 'S256',
-                    state:                 state_val,
-                    prompt:                'consent'
+                    client_id:     clientId,
+                    redirect_uri:  location.origin + location.pathname,
+                    response_type: 'token',
+                    scope:         'https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/drive.file',
+                    state:         state_val,
+                    prompt:        'consent'
                 });
                 window.location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + params;
             }
 
-            async function _exchangeGDriveCode(code) {
-                const verifier = sessionStorage.getItem('gdrive_verifier');
-                const clientId = sessionStorage.getItem('gdrive_client');
-                if (!verifier || !clientId) return;
-                const resp = await fetch('https://oauth2.googleapis.com/token', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: new URLSearchParams({
-                        code, client_id: clientId,
-                        redirect_uri: location.origin + location.pathname,
-                        grant_type: 'authorization_code',
-                        code_verifier: verifier
-                    })
-                });
-                const tk = await resp.json();
-                if (tk.access_token) {
-                    _gdriveToken = { ...tk, expires_at: Date.now() + tk.expires_in * 1000, client_id: clientId };
-                    _activeProvider = 'gdrive';
-                    _saveTokens();
-                    sessionStorage.removeItem('gdrive_verifier');
-                    sessionStorage.removeItem('gdrive_state');
-                    _updateUI();
-                    Toast.show('✅ Google Drive conectado!', 'success');
-                    history.replaceState({}, '', location.pathname);
+            // ── Token chega no hash — não há troca de código (implicit flow)
+            function _handleGDriveImplicitCallback(hashParams) {
+                const accessToken = hashParams.get('access_token');
+                const state_val   = hashParams.get('state');
+                const expiresIn   = parseInt(hashParams.get('expires_in') || '3600', 10);
+                if (!accessToken) return false;
+                if (sessionStorage.getItem('gdrive_state') !== state_val) {
+                    Toast.show('⚠️ Falha de segurança no callback Google Drive (state inválido).', 'danger');
+                    return false;
                 }
+                const clientId = sessionStorage.getItem('gdrive_client') || '';
+                _gdriveToken = {
+                    access_token: accessToken,
+                    expires_at:   Date.now() + expiresIn * 1000,
+                    client_id:    clientId
+                };
+                _activeProvider = 'gdrive';
+                _saveTokens();
+                sessionStorage.removeItem('gdrive_state');
+                sessionStorage.removeItem('gdrive_client');
+                _updateUI();
+                Toast.show('✅ Google Drive conectado!', 'success', 3500);
+                history.replaceState({}, '', location.pathname);
+                return true;
             }
 
             async function gdrivePush() {
@@ -8770,49 +8916,46 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                     Toast.show('⚠️ Informe o Client ID do Azure para conectar via OneDrive.', 'warning', 5000);
                     return;
                 }
-                const verifier  = _randomStr(32);
-                const challenge = await _pkceChallenge(verifier);
+                // ── Implicit Flow (token) ── retorna access_token direto no hash
+                // IMPORTANTE: no Azure Portal, registre o app como SPA e adicione a redirect_uri.
                 const state_val = _randomStr(16);
-                sessionStorage.setItem('od_verifier', verifier);
-                sessionStorage.setItem('od_state',    state_val);
-                sessionStorage.setItem('od_client',   clientId);
+                sessionStorage.setItem('od_state',  state_val);
+                sessionStorage.setItem('od_client', clientId);
                 const params = new URLSearchParams({
-                    client_id:             clientId,
-                    redirect_uri:          location.origin + location.pathname,
-                    response_type:         'code',
-                    scope:                 'Files.ReadWrite offline_access',
-                    code_challenge:        challenge,
-                    code_challenge_method: 'S256',
-                    state:                 state_val
+                    client_id:     clientId,
+                    redirect_uri:  location.origin + location.pathname,
+                    response_type: 'token',
+                    scope:         'https://graph.microsoft.com/Files.ReadWrite',
+                    state:         state_val,
+                    nonce:         _randomStr(16)
                 });
                 window.location.href = 'https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?' + params;
             }
 
-            async function _exchangeOneDriveCode(code) {
-                const verifier = sessionStorage.getItem('od_verifier');
-                const clientId = sessionStorage.getItem('od_client');
-                if (!verifier || !clientId) return;
-                const resp = await fetch('https://login.microsoftonline.com/consumers/oauth2/v2.0/token', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: new URLSearchParams({
-                        code, client_id: clientId,
-                        redirect_uri: location.origin + location.pathname,
-                        grant_type: 'authorization_code',
-                        code_verifier: verifier
-                    })
-                });
-                const tk = await resp.json();
-                if (tk.access_token) {
-                    _onedriveToken = { ...tk, expires_at: Date.now() + tk.expires_in * 1000, client_id: clientId };
-                    _activeProvider = 'onedrive';
-                    _saveTokens();
-                    sessionStorage.removeItem('od_verifier');
-                    sessionStorage.removeItem('od_state');
-                    _updateUI();
-                    Toast.show('✅ OneDrive conectado!', 'success');
-                    history.replaceState({}, '', location.pathname);
+            // ── Token OneDrive chega no hash (implicit flow)
+            function _handleOneDriveImplicitCallback(hashParams) {
+                const accessToken = hashParams.get('access_token');
+                const state_val   = hashParams.get('state');
+                const expiresIn   = parseInt(hashParams.get('expires_in') || '3600', 10);
+                if (!accessToken) return false;
+                if (sessionStorage.getItem('od_state') !== state_val) {
+                    Toast.show('⚠️ Falha de segurança no callback OneDrive (state inválido).', 'danger');
+                    return false;
                 }
+                const clientId = sessionStorage.getItem('od_client') || '';
+                _onedriveToken = {
+                    access_token: accessToken,
+                    expires_at:   Date.now() + expiresIn * 1000,
+                    client_id:    clientId
+                };
+                _activeProvider = 'onedrive';
+                _saveTokens();
+                sessionStorage.removeItem('od_state');
+                sessionStorage.removeItem('od_client');
+                _updateUI();
+                Toast.show('✅ OneDrive conectado!', 'success', 3500);
+                history.replaceState({}, '', location.pathname);
+                return true;
             }
 
             async function onedrivePush() {
@@ -8900,17 +9043,49 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
             }
 
             // ── Trata callback OAuth2 na URL ─────────────────────────────────
+            // Implicit Flow: token chega no #hash (Google Drive e OneDrive)
+            // Authorization Code: token chega em ?code= na query (legado — não usado mais)
             function _handleOAuthCallback() {
-                const params = new URLSearchParams(location.search);
-                const code = params.get('code');
-                const state_val = params.get('state');
-                if (!code) return;
-                if (sessionStorage.getItem('gdrive_state') === state_val) {
-                    _exchangeGDriveCode(code).catch(e => Toast.show('Erro Google Drive: ' + e.message, 'danger'));
-                } else if (sessionStorage.getItem('od_state') === state_val) {
-                    _exchangeOneDriveCode(code).catch(e => Toast.show('Erro OneDrive: ' + e.message, 'danger'));
+                // ── 1. Verifica hash (implicit flow — acesso_token direto)
+                const rawHash = location.hash.substring(1);
+                if (rawHash) {
+                    const hashParams = new URLSearchParams(rawHash);
+                    if (hashParams.get('access_token')) {
+                        // Descobre qual provedor pelo state guardado em sessionStorage
+                        const stateVal = hashParams.get('state');
+                        if (sessionStorage.getItem('gdrive_state') === stateVal) {
+                            _handleGDriveImplicitCallback(hashParams);
+                            return;
+                        }
+                        if (sessionStorage.getItem('od_state') === stateVal) {
+                            _handleOneDriveImplicitCallback(hashParams);
+                            return;
+                        }
+                        // Fallback: tenta gdrive primeiro se state não casar
+                        if (sessionStorage.getItem('gdrive_state')) {
+                            _handleGDriveImplicitCallback(hashParams);
+                        } else if (sessionStorage.getItem('od_state')) {
+                            _handleOneDriveImplicitCallback(hashParams);
+                        }
+                        return;
+                    }
                 }
+                // ── 2. Sem hash — nada a fazer (implicit flow não usa ?code=)
             }
+
+            // ── Sync automático ao retornar para a aba/janela ───────────────
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') {
+                    try {
+                        if (_activeProvider === 'gdrive' && _gdriveToken && !_isExpired(_gdriveToken)) {
+                            // Pull silencioso ao focar na aba — garante dados frescos entre dispositivos
+                            setTimeout(() => gdrivePull().catch(() => {}), 800);
+                        } else if (_activeProvider === 'onedrive' && _onedriveToken && !_isExpired(_onedriveToken)) {
+                            setTimeout(() => onedrivePull().catch(() => {}), 800);
+                        }
+                    } catch(e) {}
+                }
+            });
 
             // ── Init ─────────────────────────────────────────────────────────
             _loadTokens();
@@ -15210,15 +15385,24 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                     tab.style.display = 'none';
                 });
                 
-                document.getElementById(`tab${tabName.charAt(0).toUpperCase() + tabName.slice(1)}`).style.display = 'block';
+                const activeTab = document.getElementById(`tab${tabName.charAt(0).toUpperCase() + tabName.slice(1)}`);
+                if (activeTab) {
+                    activeTab.style.display = 'block';
+                    // Scroll suave para o topo da seção ao trocar de aba
+                    setTimeout(() => {
+                        const configSection = document.getElementById('config');
+                        if (configSection) configSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }, 50);
+                }
                 
                 if (event) {
                     document.querySelectorAll('[onclick^="Config.showTab"]').forEach(btn => {
                         btn.classList.remove('btn-primary');
                         btn.classList.add('btn-secondary');
                     });
-                    event.target.classList.remove('btn-secondary');
-                    event.target.classList.add('btn-primary');
+                    const target = event.target.closest('button') || event.target;
+                    target.classList.remove('btn-secondary');
+                    target.classList.add('btn-primary');
                 }
 
                 // Renderiza painel de backup ao abrir a aba
@@ -15226,6 +15410,8 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                     this.renderBackupStatus();
                     // Atualiza o widget de sync
                     setTimeout(() => { if(window.LocalFirst) try { if (window.CloudSync) CloudSync._updateUI(); } catch(_e) {} }, 100);
+                    // Atualiza painel RxDB com dados em tempo real
+                    setTimeout(() => { if(window.RxDBPanel) RxDBPanel.refresh(); }, 200);
                 }
 
                 // Badge loja em Configurações → atualizado pelo StoreManager
