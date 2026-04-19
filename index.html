@@ -7511,12 +7511,17 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                         <!-- CLOUD SYNC — GOOGLE DRIVE + ONEDRIVE -->
                         <div style="background:linear-gradient(135deg,#0a1628,#0d2137);border:1px solid #3b82f6;border-radius:12px;padding:1.5rem;margin-bottom:1.5rem;">
                             <h4 style="color:#60a5fa;margin-bottom:0.5rem;display:flex;align-items:center;gap:0.5rem;">
-                                <i class="fas fa-cloud" style="color:#60a5fa;"></i> Sync entre Dispositivos — Google Drive &amp; OneDrive
-                                <span style="font-size:0.65rem;background:#1e3a5f;color:#93c5fd;padding:2px 7px;border-radius:4px;font-weight:700;">SEM SERVIDOR ☁️</span>
+                                <i class="fas fa-cloud" style="color:#60a5fa;"></i> Sync em Tempo Real — Google Drive &amp; OneDrive
+                                <span style="font-size:0.65rem;background:#1e3a5f;color:#93c5fd;padding:2px 7px;border-radius:4px;font-weight:700;">5s ⚡ REAL-TIME</span>
                             </h4>
+
+                            <!-- ALERTA: cada navegador precisa de autenticação própria -->
+                            <div style="background:#1a1a00;border:1px solid #b45309;border-radius:8px;padding:10px 12px;margin-bottom:1rem;font-size:0.78rem;color:#fcd34d;">
+                                <strong>⚠️ Importante:</strong> Cada navegador (Chrome, Edge, Firefox) precisa se conectar ao Google Drive separadamente. O token expira a cada ~1 hora — use o botão de reconexão que aparece automaticamente.
+                            </div>
+
                             <p style="color:#93c5fd;font-size:0.78rem;margin-bottom:1rem;">
-                                Sincronize seus dados entre dispositivos usando o <strong>Google Drive</strong> ou <strong>OneDrive</strong> da sua conta — sem necessidade de servidor próprio.
-                                Os dados são salvos como um arquivo JSON criptografado na sua nuvem pessoal.
+                                Dados sincronizados a cada <strong>5 segundos</strong> quando o app está ativo — ideal para uso simultâneo em múltiplos dispositivos.
                             </p>
 
                             <!-- Status Cloud -->
@@ -7554,17 +7559,19 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                                 </div>
                                 <div id="gdriveConnected" style="display:none;">
                                     <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;color:#4ade80;font-weight:700;font-size:0.85rem;">
-                                        <i class="fas fa-check-circle"></i> Google Drive conectado
+                                        <span id="cs_gdrive_pulse" style="width:10px;height:10px;border-radius:50%;background:#4ade80;display:inline-block;animation:cs_pulse 1.5s ease-in-out infinite alternate;"></span>
+                                        Google Drive — sync a cada 5s
                                     </div>
-                                    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                                    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.5rem;">
                                         <button class="btn btn-sm" style="background:#1a73e8;color:#fff;font-weight:700;flex:1;" onclick="CloudSync.gdrivePush()">
-                                            <i class="fas fa-cloud-upload-alt"></i> Enviar para Drive
+                                            <i class="fas fa-cloud-upload-alt"></i> Enviar agora
                                         </button>
                                         <button class="btn btn-sm" style="background:#34a853;color:#fff;font-weight:700;flex:1;" onclick="CloudSync.gdrivePull()">
-                                            <i class="fas fa-cloud-download-alt"></i> Baixar do Drive
+                                            <i class="fas fa-cloud-download-alt"></i> Baixar agora
                                         </button>
                                     </div>
-                                    <button class="btn btn-sm" style="background:transparent;color:#64748b;border:1px solid #334155;font-size:0.72rem;margin-top:0.5rem;width:100%;"
+                                    <div id="cs_gdrive_last_sync" style="font-size:0.7rem;color:#6b7280;margin-bottom:0.5rem;text-align:center;">—</div>
+                                    <button class="btn btn-sm" style="background:transparent;color:#64748b;border:1px solid #334155;font-size:0.72rem;width:100%;"
                                         onclick="CloudSync.gdriveDisconnect()">
                                         <i class="fas fa-sign-out-alt"></i> Desconectar Google Drive
                                     </button>
@@ -7591,14 +7598,15 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                                 </div>
                                 <div id="onedriveConnected" style="display:none;">
                                     <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;color:#4ade80;font-weight:700;font-size:0.85rem;">
-                                        <i class="fas fa-check-circle"></i> OneDrive conectado
+                                        <span style="width:10px;height:10px;border-radius:50%;background:#4ade80;display:inline-block;animation:cs_pulse 1.5s ease-in-out infinite alternate;"></span>
+                                        OneDrive — sync a cada 5s
                                     </div>
                                     <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
                                         <button class="btn btn-sm" style="background:#0078d4;color:#fff;font-weight:700;flex:1;" onclick="CloudSync.onedrivePush()">
-                                            <i class="fas fa-cloud-upload-alt"></i> Enviar para OneDrive
+                                            <i class="fas fa-cloud-upload-alt"></i> Enviar agora
                                         </button>
                                         <button class="btn btn-sm" style="background:#00a4ef;color:#fff;font-weight:700;flex:1;" onclick="CloudSync.onedrivePull()">
-                                            <i class="fas fa-cloud-download-alt"></i> Baixar do OneDrive
+                                            <i class="fas fa-cloud-download-alt"></i> Baixar agora
                                         </button>
                                     </div>
                                     <button class="btn btn-sm" style="background:transparent;color:#64748b;border:1px solid #334155;font-size:0.72rem;margin-top:0.5rem;width:100%;"
@@ -8766,8 +8774,11 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
             const FILE_NAME               = 'OticaVisionPro_sync.json';
             const GDRIVE_DEFAULT_CLIENT   = '';
             const ONEDRIVE_DEFAULT_CLIENT = '';
-            const POLL_INTERVAL_MS        = 30000;   // polling a cada 30 segundos
-            const PUSH_DEBOUNCE_MS        = 3000;    // push após 3s sem mudanças
+            // REAL-TIME SYNC: polling adaptativo (5s ativo / 45s background)
+            const POLL_ACTIVE_MS          = 5000;
+            const POLL_BACKGROUND_MS      = 45000;
+            const POLL_INTERVAL_MS        = POLL_ACTIVE_MS;
+            const PUSH_DEBOUNCE_MS        = 800;     // push 0.8s após última mudança
             const LS_LAST_PULL_TS         = 'cs_last_pull_ts';
             const LS_GDRIVE_FILE_ID       = 'cs_gdrive_file_id';
             const LS_OD_FILE_ID           = 'cs_od_file_id';
@@ -8779,6 +8790,9 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
             let _pulling        = false;
             let _pushTimer      = null;
             let _pollTimer      = null;
+            let _lastPushTime   = 0;
+            let _lastPullTime   = 0;
+            let _syncCount      = 0;
             let _gdriveFileId   = localStorage.getItem(LS_GDRIVE_FILE_ID) || null;
             let _odFileId       = localStorage.getItem(LS_OD_FILE_ID)     || null;
 
@@ -8808,20 +8822,28 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
             // ── Coleta TODOS os dados (incluindo company) ─────────────────────
             function _collectAllData() {
                 const storeId = window._currentStore || 'barueri';
+                // FIX: incluir contas financeiras no sync
+                let contasFinanceiras = [];
+                try {
+                    const raw = window.IDB && IDB._cache && IDB._cache['contas_financeiras_' + storeId];
+                    if (raw) { contasFinanceiras = typeof raw === 'string' ? JSON.parse(raw) : (Array.isArray(raw) ? raw : []); }
+                    else if (state._contasManuais) contasFinanceiras = state._contasManuais;
+                } catch(e) {}
                 return {
-                    _rxdb:          'v17',
-                    _store:         storeId,
-                    _ts:            new Date().toISOString(),
-                    clients:        state.clients        || [],
-                    products:       state.products       || [],
-                    sales:          state.sales          || [],
-                    expenses:       state.expenses       || [],
-                    prescriptions:  state.prescriptions  || [],
-                    suppliers:      state.suppliers      || [],
-                    services:       state.services       || [],
-                    company:        state.company        || {},
-                    config:         state.config         || {},
-                    lastOsCounter:  state.lastOsCounter  || {}
+                    _rxdb:              'v17',
+                    _store:             storeId,
+                    _ts:                new Date().toISOString(),
+                    clients:            state.clients            || [],
+                    products:           state.products           || [],
+                    sales:              state.sales              || [],
+                    expenses:           state.expenses           || [],
+                    prescriptions:      state.prescriptions      || [],
+                    suppliers:          state.suppliers          || [],
+                    services:           state.services           || [],
+                    company:            state.company            || {},
+                    config:             state.config             || {},
+                    lastOsCounter:      state.lastOsCounter      || {},
+                    contasFinanceiras:  contasFinanceiras
                 };
             }
 
@@ -8838,6 +8860,15 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                 if (remote.company       && typeof remote.company       === 'object') Object.assign(state.company       || (state.company       = {}), remote.company);
                 if (remote.config        && typeof remote.config        === 'object') Object.assign(state.config        || (state.config        = {}), remote.config);
                 if (remote.lastOsCounter && typeof remote.lastOsCounter === 'object') state.lastOsCounter = { ...(state.lastOsCounter || {}), ...remote.lastOsCounter };
+                // FIX: restaura contas financeiras do Drive
+                if (Array.isArray(remote.contasFinanceiras) && remote.contasFinanceiras.length > 0) {
+                    state._contasManuais = remote.contasFinanceiras;
+                    try {
+                        const storeKey = 'contas_financeiras_' + storeId;
+                        if (window.IDB && IDB._cache) IDB._cache[storeKey] = JSON.stringify(remote.contasFinanceiras);
+                        if (window.ContasManager) ContasManager.saveAll(remote.contasFinanceiras).catch(()=>{});
+                    } catch(e) {}
+                }
                 // Persiste no IndexedDB local
                 await LocalFirst.rewriteAll();
                 // Re-renderiza toda a UI
@@ -8851,8 +8882,15 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                 try { Services.renderTable?.(); }       catch(e) {}
                 try { Suppliers.renderTable?.(); }      catch(e) {}
                 try { Utils.updatePixKey?.(); }         catch(e) {}
+                try { ContasManager.renderAll?.(); }    catch(e) {}
+                try { setTimeout(() => window.RxDBPanel?.refresh(), 500); } catch(e) {}
                 // Salva timestamp do último pull
                 localStorage.setItem(LS_LAST_PULL_TS, remote._ts || new Date().toISOString());
+                // Atualiza label "último sync" no painel
+                try {
+                    const lbl = document.getElementById('cs_gdrive_last_sync');
+                    if (lbl) lbl.textContent = '↓ Último pull: ' + new Date().toLocaleTimeString('pt-BR');
+                } catch(e) {}
                 if (!silent) Toast.show('✅ Dados sincronizados da nuvem!', 'success', 2500);
                 return true;
             }
@@ -8864,6 +8902,8 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
             async function connectGDrive() {
                 const clientId = (document.getElementById('gdriveClientId')?.value?.trim()) || GDRIVE_DEFAULT_CLIENT;
                 if (!clientId) { Toast.show('⚠️ Informe o Client ID do Google Cloud Console para conectar.', 'warning', 5000); return; }
+                // FIX: salva o Client ID para reconexão automática após expirar
+                try { localStorage.setItem('cs_gdrive_client_id', clientId); } catch(e) {}
                 const state_val = _randomStr(16);
                 sessionStorage.setItem('gdrive_state',  state_val);
                 sessionStorage.setItem('gdrive_client', clientId);
@@ -8905,22 +8945,10 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                 return true;
             }
 
-            // ── Obtém ou cria o fileId no Drive (com cache) ───────────────────
+            // ── Obtém ou cria o fileId no Drive (com cache otimizado) ─────────
             async function _gdriveGetOrCreateFileId() {
-                // Usa cache em memória primeiro
-                if (_gdriveFileId) {
-                    // Valida se o arquivo ainda existe
-                    try {
-                        const r = await fetch(
-                            'https://www.googleapis.com/drive/v3/files/' + _gdriveFileId + '?fields=id',
-                            { headers: { Authorization: 'Bearer ' + _gdriveToken.access_token } }
-                        );
-                        if (r.ok) return _gdriveFileId;
-                    } catch(e) {}
-                    // Arquivo não existe mais — limpa cache
-                    _gdriveFileId = null;
-                    localStorage.removeItem(LS_GDRIVE_FILE_ID);
-                }
+                // Usa cache em memória diretamente — sem validação extra (economiza 1 request)
+                if (_gdriveFileId) return _gdriveFileId;
                 // Busca por nome
                 const searchResp = await fetch(
                     'https://www.googleapis.com/drive/v3/files?spaces=drive&q=name%3D%22' + FILE_NAME + '%22%20and%20trashed%3Dfalse&fields=files(id,modifiedTime)',
@@ -8951,19 +8979,27 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
             async function gdrivePush(silent) {
                 if (!_gdriveToken || _isExpired(_gdriveToken)) {
                     if (!silent) Toast.show('⚠️ Token Google Drive expirado. Reconecte.', 'warning');
+                    if (silent) _showReconnectBanner();
                     return;
                 }
                 if (_pushing) return;
                 _pushing = true;
+                if (silent) _updateWidget('push', '↑ Enviando...');
                 try {
                     const data = JSON.stringify(_collectAllData(), null, 2);
                     const fileId = await _gdriveGetOrCreateFileId();
                     if (fileId) {
                         // Atualiza arquivo existente
-                        await fetch(
+                        const r = await fetch(
                             'https://www.googleapis.com/upload/drive/v3/files/' + fileId + '?uploadType=media',
                             { method: 'PATCH', headers: { Authorization: 'Bearer ' + _gdriveToken.access_token, 'Content-Type': 'application/json' }, body: data }
                         );
+                        // Se 404 (arquivo deletado externamente), limpa cache e recria
+                        if (r.status === 404) {
+                            _gdriveFileId = null;
+                            localStorage.removeItem(LS_GDRIVE_FILE_ID);
+                            return gdrivePush(silent);
+                        }
                     } else {
                         // Cria novo arquivo
                         const meta = JSON.stringify({ name: FILE_NAME, mimeType: 'application/json' });
@@ -8978,11 +9014,14 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                         if (created.id) { _gdriveFileId = created.id; localStorage.setItem(LS_GDRIVE_FILE_ID, _gdriveFileId); }
                     }
                     const now = new Date().toLocaleTimeString('pt-BR');
+                    _lastPushTime = Date.now();
+                    _syncCount++;
                     localStorage.setItem('cs_gdrive_last_push', new Date().toISOString());
-                    _updateStatus('🟢 Último envio: ' + now);
-                    _showSyncIndicator('Salvo na nuvem ' + now);
+                    _updateStatus('🟢 Enviado às ' + now + ' — polling a cada ' + (POLL_ACTIVE_MS/1000) + 's');
+                    _showSyncIndicator('↑ Salvo ' + now);
                     if (!silent) Toast.show('✅ Dados enviados ao Google Drive!', 'success', 2000);
                 } catch(e) {
+                    if (silent) _updateWidget('err', '↑ Falha no envio');
                     if (!silent) Toast.show('❌ Erro ao enviar ao Drive: ' + e.message, 'danger');
                     else console.warn('[CloudSync] gdrivePush silencioso falhou:', e.message);
                 } finally {
@@ -8994,15 +9033,18 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
             async function gdrivePull(silent) {
                 if (!_gdriveToken || _isExpired(_gdriveToken)) {
                     if (!silent) Toast.show('⚠️ Token Google Drive expirado. Reconecte.', 'warning');
+                    if (silent) _showReconnectBanner();
                     return;
                 }
                 if (_pulling) return;
                 _pulling = true;
+                if (silent) _updateWidget('pull', '↓ Verificando...');
                 try {
                     const fileId = await _gdriveGetOrCreateFileId();
                     if (!fileId) {
                         if (!silent) Toast.show('⚠️ Nenhum arquivo de backup encontrado no Google Drive.', 'warning');
                         _pulling = false;
+                        if (silent) _showSyncIndicator('Sem arquivo no Drive');
                         return;
                     }
                     // ── Verifica se o arquivo remoto é mais novo que o último pull ─
@@ -9012,13 +9054,15 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                         const remoteDate = new Date(remoteTs).getTime();
                         const lastDate   = new Date(lastPull).getTime();
                         if (remoteDate <= lastDate) {
-                            // Arquivo remoto não mudou desde o último pull — ignora
+                            // Sem mudanças remotas
                             _pulling = false;
+                            _showSyncIndicator('✓ Atualizado ' + new Date().toLocaleTimeString('pt-BR'));
                             return;
                         }
                     }
                     // ── Baixa o conteúdo ──────────────────────────────────────
                     if (!silent) Toast.show('☁️ Baixando dados do Google Drive...', 'info', 1500);
+                    if (silent) _updateWidget('pull', '↓ Baixando...');
                     const fileResp = await fetch(
                         'https://www.googleapis.com/drive/v3/files/' + fileId + '?alt=media',
                         { headers: { Authorization: 'Bearer ' + _gdriveToken.access_token } }
@@ -9028,14 +9072,18 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                     if (silent && remote._ts && lastPull) {
                         if (new Date(remote._ts).getTime() <= new Date(lastPull).getTime()) {
                             _pulling = false;
+                            _showSyncIndicator('✓ Atualizado ' + new Date().toLocaleTimeString('pt-BR'));
                             return;
                         }
                     }
                     await _applyCloudData(remote, silent);
-                    if (silent) _showSyncIndicator('Sincronizado ' + new Date().toLocaleTimeString('pt-BR'));
+                    _lastPullTime = Date.now();
+                    _syncCount++;
+                    const now = new Date().toLocaleTimeString('pt-BR');
+                    if (silent) _showSyncIndicator('↓ Atualizado ' + now);
                 } catch(e) {
                     if (!silent) Toast.show('❌ Erro ao baixar do Drive: ' + e.message, 'danger');
-                    else console.warn('[CloudSync] gdrivePull silencioso falhou:', e.message);
+                    else { console.warn('[CloudSync] gdrivePull silencioso falhou:', e.message); _updateWidget('err', 'Erro no pull'); }
                 } finally {
                     _pulling = false;
                 }
@@ -9202,17 +9250,22 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
             // ════════════════════════════════════════════════════════════════
             //  POLLING — detecta mudanças de outros dispositivos a cada 30s
             // ════════════════════════════════════════════════════════════════
+            // ════════════════════════════════════════════════════════════════
+            //  POLLING ADAPTATIVO — 5s quando ativo, 45s em background
+            // ════════════════════════════════════════════════════════════════
             function _startPolling() {
                 _stopPolling();
-                _pollTimer = setInterval(() => {
-                    if (document.visibilityState === 'hidden') return; // não faz nada com aba oculta
-                    _silentPull();
-                }, POLL_INTERVAL_MS);
-                console.log('[CloudSync] ✅ Polling iniciado (a cada ' + (POLL_INTERVAL_MS/1000) + 's)');
+                function _tick() {
+                    if (document.visibilityState !== 'hidden') _silentPull();
+                    const next = document.visibilityState === 'hidden' ? POLL_BACKGROUND_MS : POLL_ACTIVE_MS;
+                    _pollTimer = setTimeout(_tick, next);
+                }
+                _pollTimer = setTimeout(_tick, POLL_ACTIVE_MS);
+                console.log('[CloudSync] ✅ Polling adaptativo iniciado (ativo:' + POLL_ACTIVE_MS/1000 + 's / bg:' + POLL_BACKGROUND_MS/1000 + 's)');
             }
 
             function _stopPolling() {
-                if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+                if (_pollTimer) { clearTimeout(_pollTimer); _pollTimer = null; }
             }
 
             function _silentPull() {
@@ -9235,17 +9288,51 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                 } catch(e) {}
             }
 
-            // ── Indicador visual de sync (canto inferior direito) ─────────────
+            // ── Widget de sync em tempo real (canto inferior direito) ─────────
+            let _rtWidget = null;
+            let _rtCountdown = null;
+            function _ensureWidget() {
+                if (_rtWidget) return;
+                _rtWidget = document.createElement('div');
+                _rtWidget.id = 'cs_rt_widget';
+                _rtWidget.style.cssText = 'position:fixed;bottom:14px;right:14px;z-index:9997;background:#0f172a;color:#fff;border:1px solid #334155;border-radius:20px;padding:5px 12px;font-size:0.72rem;font-weight:600;display:flex;align-items:center;gap:6px;box-shadow:0 2px 12px rgba(0,0,0,0.4);min-width:140px;transition:opacity 0.3s;cursor:default;';
+                _rtWidget.innerHTML = '<span id="cs_rt_dot" style="width:8px;height:8px;border-radius:50%;background:#4ade80;flex-shrink:0;transition:background 0.3s;"></span><span id="cs_rt_text">Conectado</span>';
+                document.body.appendChild(_rtWidget);
+            }
+            function _updateWidget(state, msg, countdown) {
+                _ensureWidget();
+                const dot  = document.getElementById('cs_rt_dot');
+                const txt  = document.getElementById('cs_rt_text');
+                if (!dot || !txt) return;
+                const colors = { ok:'#4ade80', push:'#facc15', pull:'#60a5fa', err:'#f87171', off:'#6b7280' };
+                dot.style.background = colors[state] || colors.ok;
+                dot.style.animation  = (state === 'push' || state === 'pull') ? 'cs_pulse 0.7s ease-in-out infinite alternate' : 'none';
+                txt.textContent = msg;
+                if (!document.getElementById('cs_pulse_style')) {
+                    const s = document.createElement('style');
+                    s.id = 'cs_pulse_style';
+                    s.textContent = '@keyframes cs_pulse{0%{opacity:1}100%{opacity:0.3}}';
+                    document.head.appendChild(s);
+                }
+            }
+            function _startCountdown(nextSec) {
+                clearInterval(_rtCountdown);
+                let rem = nextSec;
+                _rtCountdown = setInterval(() => {
+                    rem--;
+                    if (rem <= 0) { clearInterval(_rtCountdown); return; }
+                    const el = document.getElementById('cs_rt_text');
+                    if (el) el.textContent = 'Próximo sync: ' + rem + 's';
+                }, 1000);
+            }
+
             function _showSyncIndicator(msg) {
-                try {
-                    const el = document.getElementById('cloudSyncIndicator');
-                    const tx = document.getElementById('cloudSyncText');
-                    if (!el || !tx) return;
-                    tx.textContent = msg;
-                    el.style.display = 'flex';
-                    clearTimeout(el._hideTimer);
-                    el._hideTimer = setTimeout(() => { el.style.display = 'none'; }, 3000);
-                } catch(e) {}
+                _updateWidget('ok', msg);
+                clearInterval(_rtCountdown);
+                if (_activeProvider) {
+                    const interval = document.visibilityState === 'hidden' ? POLL_BACKGROUND_MS : POLL_ACTIVE_MS;
+                    _startCountdown(Math.round(interval / 1000));
+                }
             }
 
             // ── UI ───────────────────────────────────────────────────────────
@@ -9272,9 +9359,17 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                 if (oCon) oCon.style.display = oOk ? 'block' : 'none';
                 const status = document.getElementById('cloudSyncStatus');
                 if (status) {
-                    if (gOk)      status.textContent = '🟢 Google Drive — sync em tempo real ativo (' + (POLL_INTERVAL_MS/1000) + 's)';
-                    else if (oOk) status.textContent = '🟢 OneDrive — sync em tempo real ativo (' + (POLL_INTERVAL_MS/1000) + 's)';
+                    if (gOk)      status.textContent = '🟢 Google Drive — sync em tempo real ativo (' + POLL_ACTIVE_MS/1000 + 's ativo / ' + POLL_BACKGROUND_MS/1000 + 's bg)';
+                    else if (oOk) status.textContent = '🟢 OneDrive — sync em tempo real ativo (' + POLL_ACTIVE_MS/1000 + 's ativo / ' + POLL_BACKGROUND_MS/1000 + 's bg)';
                     else          status.textContent = '⚫ Nenhum provedor conectado — dados apenas locais';
+                }
+                // Inicializa widget com estado atual
+                if (gOk || oOk) {
+                    _ensureWidget();
+                    _updateWidget('ok', 'Sync ativo (' + POLL_ACTIVE_MS/1000 + 's)');
+                } else {
+                    const w = document.getElementById('cs_rt_widget');
+                    if (w) _updateWidget('off', 'Sem sync cloud');
                 }
             }
 
@@ -9298,15 +9393,50 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                 }
             });
 
+            // ── Banner de reconexão quando token expirado ─────────────────────
+            function _checkTokenExpiry() {
+                if (!_activeProvider) return;
+                const tok = _activeProvider === 'gdrive' ? _gdriveToken : _onedriveToken;
+                if (!tok) return;
+                if (_isExpired(tok)) {
+                    _showReconnectBanner();
+                }
+            }
+            function _showReconnectBanner() {
+                if (document.getElementById('cs_reconnect_banner')) return;
+                const savedClientId = localStorage.getItem('cs_gdrive_client_id') || '';
+                const banner = document.createElement('div');
+                banner.id = 'cs_reconnect_banner';
+                banner.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:99999;background:#b45309;color:#fff;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:0.85rem;font-weight:600;box-shadow:0 -2px 12px rgba(0,0,0,0.3);';
+                const isGdrive = _activeProvider === 'gdrive';
+                banner.innerHTML = `
+                    <span>⚠️ Sessão do ${isGdrive ? 'Google Drive' : 'OneDrive'} expirou — dados não estão sincronizando com outros dispositivos.</span>
+                    <div style="display:flex;gap:8px;flex-shrink:0;">
+                        ${isGdrive && savedClientId ? `<button onclick="(function(){document.getElementById('gdriveClientId') && (document.getElementById('gdriveClientId').value='${savedClientId}'); CloudSync.connectGDrive(); document.getElementById('cs_reconnect_banner')?.remove();})()" style="background:#1a73e8;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-weight:700;cursor:pointer;">🔄 Reconectar Google Drive</button>` : ''}
+                        <button onclick="document.getElementById('cs_reconnect_banner')?.remove()" style="background:rgba(255,255,255,0.2);color:#fff;border:none;border-radius:6px;padding:6px 10px;cursor:pointer;">✕</button>
+                    </div>`;
+                document.body.appendChild(banner);
+            }
+            // Verifica expiração a cada 2 minutos
+            setInterval(_checkTokenExpiry, 120000);
+
             // ── Init ─────────────────────────────────────────────────────────
             _loadTokens();
             window.addEventListener('load', () => {
                 _handleOAuthCallback();
+                // FIX: pré-preenche o campo de Client ID com o valor salvo
+                setTimeout(() => {
+                    const savedId = localStorage.getItem('cs_gdrive_client_id') || '';
+                    const inp = document.getElementById('gdriveClientId');
+                    if (inp && savedId && !inp.value) inp.value = savedId;
+                }, 800);
                 setTimeout(() => {
                     _updateUI();
                     // Se já estava conectado, retoma polling e faz pull inicial
                     if (_activeProvider === 'gdrive'   && _gdriveToken   && !_isExpired(_gdriveToken))   { _startPolling(); setTimeout(() => gdrivePull(true).catch(()=>{}), 1500); }
                     if (_activeProvider === 'onedrive' && _onedriveToken && !_isExpired(_onedriveToken)) { _startPolling(); setTimeout(() => onedrivePull(true).catch(()=>{}), 1500); }
+                    // FIX: mostra banner se token expirado logo na abertura
+                    setTimeout(_checkTokenExpiry, 3000);
                 }, 500);
             });
 
@@ -9316,8 +9446,11 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                 showTab, _updateUI,
                 // autoSync agora é push agendado com debounce
                 autoSync() { _schedulePush(); },
+                // Força pull imediato (útil para botão manual)
+                forcePull() { return _activeProvider === 'gdrive' ? gdrivePull(false) : onedrivePull(false); },
                 get connected() { return !!(_gdriveToken || _onedriveToken); },
-                get provider()  { return _activeProvider; }
+                get provider()  { return _activeProvider; },
+                get syncCount() { return _syncCount; }
             };
         })();
         // ══════════════════════════════════════════════════════════════════════
