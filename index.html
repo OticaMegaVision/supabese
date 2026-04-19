@@ -7601,26 +7601,26 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                                 <div style="display:grid;grid-template-columns:1fr;gap:0.5rem;">
                                     <div>
                                         <label style="color:#9ca3af;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Electric API URL <span style="color:#6ee7b7;font-weight:400;text-transform:none;">(fixo — não altere)</span></label>
-                                        <input id="electricUrlInput" type="text" value="https://api.electric-sql.cloud" placeholder="https://api.electric-sql.cloud" style="width:100%;background:#0f172a;color:#a6e3a1;border:1px solid #1e3a2f;border-radius:6px;padding:7px 10px;font-size:0.8rem;font-family:monospace;">
+                                        <input id="electricUrlInput" type="text" value="https://api.electric-sql.cloud" placeholder="https://api.electric-sql.cloud" style="width:100%;background:#0f172a;color:#a6e3a1;border:1px solid #1e3a2f;border-radius:6px;padding:7px 10px;font-size:0.8rem;font-family:monospace;" readonly>
                                         <div style="color:#f87171;font-size:0.68rem;margin-top:2px;">⚠️ Deve começar com <strong>https://api.electric-sql.cloud</strong> — nunca cole aqui a Connection URL do Supabase</div>
                                     </div>
                                     <div>
                                         <label style="color:#9ca3af;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Electric Database ID <span style="color:#6ee7b7;font-weight:400;text-transform:none;">(Source do dashboard)</span></label>
-                                        <input id="electricDbIdInput" type="text" placeholder="svc-balanced-earthworm-xxxxxxx" style="width:100%;background:#0f172a;color:#a6e3a1;border:1px solid #1e3a2f;border-radius:6px;padding:7px 10px;font-size:0.8rem;font-family:monospace;">
+                                        <input id="electricDbIdInput" type="text" value="svc-balanced-earthworm-sgdvbzy7ff" placeholder="svc-balanced-earthworm-xxxxxxx" style="width:100%;background:#0f172a;color:#a6e3a1;border:1px solid #1e3a2f;border-radius:6px;padding:7px 10px;font-size:0.8rem;font-family:monospace;" readonly>
                                         <div style="color:#9ca3af;font-size:0.68rem;margin-top:2px;">No dashboard Electric SQL → Overview → Auth → campo <strong>Source</strong></div>
                                     </div>
                                     <div>
                                         <label style="color:#9ca3af;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Electric API Key (Secret)</label>
-                                        <input id="electricApiKeyInput" type="password" placeholder="ey..." style="width:100%;background:#0f172a;color:#a6e3a1;border:1px solid #1e3a2f;border-radius:6px;padding:7px 10px;font-size:0.8rem;font-family:monospace;">
+                                        <input id="electricApiKeyInput" type="password" value="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzb3VyY2VfaWQiOiJzdmMtYmFsYW5jZWQtZWFydGh3b3JtLXNnZHZienk3ZmYiLCJpYXQiOjE3NzY1MTg1OTZ9.-lRex5hdwl6oxLfHTxuxjqUhT7kZRnaicpbFvsszk_E" placeholder="ey..." style="width:100%;background:#0f172a;color:#a6e3a1;border:1px solid #1e3a2f;border-radius:6px;padding:7px 10px;font-size:0.8rem;font-family:monospace;" readonly>
                                         <div style="color:#9ca3af;font-size:0.68rem;margin-top:2px;">No dashboard Electric SQL → Overview → Auth → campo <strong>Secret</strong> (JWT longo)</div>
                                     </div>
                                     <div style="border-top:1px solid rgba(62,207,142,0.2);padding-top:0.5rem;margin-top:0.25rem;">
                                         <label style="color:#fbbf24;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Supabase URL</label>
-                                        <input id="electricSupaUrlInput" type="text" placeholder="https://xxxx.supabase.co" style="width:100%;background:#0f172a;color:#fde68a;border:1px solid #2d2000;border-radius:6px;padding:7px 10px;font-size:0.8rem;font-family:monospace;">
+                                        <input id="electricSupaUrlInput" type="text" value="https://qhscxyistzlmxxnjrqao.supabase.co" placeholder="https://xxxx.supabase.co" style="width:100%;background:#0f172a;color:#fde68a;border:1px solid #2d2000;border-radius:6px;padding:7px 10px;font-size:0.8rem;font-family:monospace;" readonly>
                                     </div>
                                     <div>
                                         <label style="color:#fbbf24;font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Supabase Anon Key</label>
-                                        <input id="electricSupaKeyInput" type="password" placeholder="ey..." style="width:100%;background:#0f172a;color:#fde68a;border:1px solid #2d2000;border-radius:6px;padding:7px 10px;font-size:0.8rem;font-family:monospace;">
+                                        <input id="electricSupaKeyInput" type="password" value="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFoc2N4eWlzdHpsbXh4bmpycWFvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE4NTQzOTMsImV4cCI6MjA4NzQzMDM5M30.xrhD08N1PcOVAMdA0vovxbHOHrcSdqIYkJWw4K6G13w" placeholder="ey..." style="width:100%;background:#0f172a;color:#fde68a;border:1px solid #2d2000;border-radius:6px;padding:7px 10px;font-size:0.8rem;font-family:monospace;" readonly>
                                     </div>
                                 </div>
                                 <button class="btn btn-sm" style="background:#3ecf8e;color:#000;font-weight:700;width:100%;margin-top:0.75rem;padding:10px;"
@@ -9721,6 +9721,26 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                 get connected() { return _connected; },
 
                 boot(storeId) {
+                    // ── Credenciais pré-configuradas (hardcoded) ─────────────
+                    const _PRESET_CFG = {
+                        electricUrl:  'https://api.electric-sql.cloud',
+                        databaseId:   'svc-balanced-earthworm-sgdvbzy7ff',
+                        apiKey:       'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzb3VyY2VfaWQiOiJzdmMtYmFsYW5jZWQtZWFydGh3b3JtLXNnZHZienk3ZmYiLCJpYXQiOjE3NzY1MTg1OTZ9.-lRex5hdwl6oxLfHTxuxjqUhT7kZRnaicpbFvsszk_E',
+                        supabaseUrl:  'https://qhscxyistzlmxxnjrqao.supabase.co',
+                        supabaseKey:  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFoc2N4eWlzdHpsbXh4bmpycWFvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE4NTQzOTMsImV4cCI6MjA4NzQzMDM5M30.xrhD08N1PcOVAMdA0vovxbHOHrcSdqIYkJWw4K6G13w'
+                    };
+                    // Sempre sobrescreve com as credenciais corretas (ignora cache antigo)
+                    const _mergedCfg = Object.assign({}, _PRESET_CFG);
+                    // Preserva supabase keys do cache se existirem
+                    try {
+                        const _stored = JSON.parse(localStorage.getItem(LS_CFG) || '{}');
+                        // Credenciais Electric sempre fixas
+                        _mergedCfg.electricUrl = _PRESET_CFG.electricUrl;
+                        _mergedCfg.databaseId  = _PRESET_CFG.databaseId;
+                        _mergedCfg.apiKey      = _PRESET_CFG.apiKey;
+                    } catch(e) {}
+                    localStorage.setItem(LS_CFG, JSON.stringify(_mergedCfg));
+                    localStorage.setItem(LS_ENABLED, 'true');
                     _loadCfg();
                     _enabled = localStorage.getItem(LS_ENABLED) === 'true';
                     _storeId = storeId || window._currentStore || 'barueri';
