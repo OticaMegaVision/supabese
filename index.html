@@ -8751,20 +8751,42 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
         //  Config: armazenada em localStorage 'electric_sync_config'
         // ══════════════════════════════════════════════════════════════════════
         // ══════════════════════════════════════════════════════════════════════
-        //  CloudSync — Sincronização cross-device via Google Drive e OneDrive
-        //  Sem servidor próprio — OAuth2 PKCE + Drive/Graph REST API
+        //  CloudSync v2 — Sincronização REAL-TIME cross-device
+        //  Google Drive + OneDrive — sem servidor próprio
+        //  ✅ Push automático após cada mudança (debounce 3s)
+        //  ✅ Polling a cada 30s — detecta mudanças de outros dispositivos
+        //  ✅ Pull inteligente via modifiedTime — evita downloads desnecessários
+        //  ✅ Pull automático ao focar na aba/janela
+        //  ✅ Pull automático ao iniciar o app (boot)
+        //  ✅ Sincroniza company, config, lastOsCounter e todos os dados
         // ══════════════════════════════════════════════════════════════════════
         window.CloudSync = (function() {
+
             // ── Constantes ───────────────────────────────────────────────────
-            const FILE_NAME = 'OticaVisionPro_sync.json';
-            const GDRIVE_DEFAULT_CLIENT = '';  // Usuário pode configurar
-            const ONEDRIVE_DEFAULT_CLIENT = ''; // Usuário pode configurar
+            const FILE_NAME               = 'OticaVisionPro_sync.json';
+            const GDRIVE_DEFAULT_CLIENT   = '';
+            const ONEDRIVE_DEFAULT_CLIENT = '';
+            const POLL_INTERVAL_MS        = 30000;   // polling a cada 30 segundos
+            const PUSH_DEBOUNCE_MS        = 3000;    // push após 3s sem mudanças
+            const LS_LAST_PULL_TS         = 'cs_last_pull_ts';
+            const LS_GDRIVE_FILE_ID       = 'cs_gdrive_file_id';
+            const LS_OD_FILE_ID           = 'cs_od_file_id';
 
-            let _gdriveToken = null;
-            let _onedriveToken = null;
-            let _activeProvider = null; // 'gdrive' | 'onedrive' | null
+            let _gdriveToken    = null;
+            let _onedriveToken  = null;
+            let _activeProvider = null;
+            let _pushing        = false;
+            let _pulling        = false;
+            let _pushTimer      = null;
+            let _pollTimer      = null;
+            let _gdriveFileId   = localStorage.getItem(LS_GDRIVE_FILE_ID) || null;
+            let _odFileId       = localStorage.getItem(LS_OD_FILE_ID)     || null;
 
-            // ── Persiste tokens ──────────────────────────────────────────────
+            // ── Helpers ──────────────────────────────────────────────────────
+            function _isExpired(tok) { return !tok || Date.now() >= (tok.expires_at - 60000); }
+            function _randomStr(n) { return Array.from(crypto.getRandomValues(new Uint8Array(n))).map(b => b.toString(16).padStart(2,'0')).join('').slice(0,n); }
+
+            // ── Persiste / restaura tokens ───────────────────────────────────
             function _saveTokens() {
                 try {
                     if (_gdriveToken)    localStorage.setItem('cs_gdrive_token',    JSON.stringify(_gdriveToken));
@@ -8775,71 +8797,73 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
             function _loadTokens() {
                 try {
                     const g = localStorage.getItem('cs_gdrive_token');
-                    if (g) _gdriveToken = JSON.parse(g);
                     const o = localStorage.getItem('cs_onedrive_token');
+                    const p = localStorage.getItem('cs_active_provider');
+                    if (g) _gdriveToken   = JSON.parse(g);
                     if (o) _onedriveToken = JSON.parse(o);
-                    _activeProvider = localStorage.getItem('cs_active_provider') || null;
+                    if (p) _activeProvider = p;
                 } catch(e) {}
             }
 
-            // ── Verifica expiração ───────────────────────────────────────────
-            function _isExpired(token) {
-                if (!token || !token.expires_at) return true;
-                return Date.now() > token.expires_at - 60000; // 1 min margem
-            }
-
-            // ── Gera estado OAuth2 PKCE ──────────────────────────────────────
-            function _randomStr(len) {
-                const arr = new Uint8Array(len);
-                crypto.getRandomValues(arr);
-                return Array.from(arr, b => ('0' + b.toString(16)).slice(-2)).join('');
-            }
-            async function _pkceChallenge(verifier) {
-                const data = new TextEncoder().encode(verifier);
-                const hash = await crypto.subtle.digest('SHA-256', data);
-                return btoa(String.fromCharCode(...new Uint8Array(hash)))
-                    .replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_');
-            }
-
-            // ── Coleta todos os dados para serializar ────────────────────────
+            // ── Coleta TODOS os dados (incluindo company) ─────────────────────
             function _collectAllData() {
                 const storeId = window._currentStore || 'barueri';
-                const data = { _rxdb: 'v17', _store: storeId, _ts: new Date().toISOString() };
-                const cols = ['clients','products','sales','expenses','prescriptions','suppliers','services'];
-                cols.forEach(k => { data[k] = state[k] || []; });
-                data.config = state.config || {};
-                data.lastOsCounter = state.lastOsCounter || {};
-                return data;
+                return {
+                    _rxdb:          'v17',
+                    _store:         storeId,
+                    _ts:            new Date().toISOString(),
+                    clients:        state.clients        || [],
+                    products:       state.products       || [],
+                    sales:          state.sales          || [],
+                    expenses:       state.expenses       || [],
+                    prescriptions:  state.prescriptions  || [],
+                    suppliers:      state.suppliers      || [],
+                    services:       state.services       || [],
+                    company:        state.company        || {},
+                    config:         state.config         || {},
+                    lastOsCounter:  state.lastOsCounter  || {}
+                };
             }
 
-            // ── Aplica dados recebidos da nuvem ──────────────────────────────
-            async function _applyCloudData(remote) {
-                if (!remote || remote._rxdb !== 'v17') { Toast.show('⚠️ Arquivo inválido ou de versão diferente', 'warning'); return; }
+            // ── Aplica dados recebidos da nuvem (com re-render completo) ──────
+            async function _applyCloudData(remote, silent) {
+                if (!remote || remote._rxdb !== 'v17') {
+                    if (!silent) Toast.show('⚠️ Arquivo inválido ou versão diferente', 'warning');
+                    return false;
+                }
                 const storeId = remote._store || window._currentStore || 'barueri';
                 window._currentStore = storeId;
                 const cols = ['clients','products','sales','expenses','prescriptions','suppliers','services'];
                 cols.forEach(k => { if (Array.isArray(remote[k])) state[k] = remote[k]; });
-                if (remote.config) state.config = remote.config;
-                if (remote.lastOsCounter) state.lastOsCounter = remote.lastOsCounter;
+                if (remote.company       && typeof remote.company       === 'object') Object.assign(state.company       || (state.company       = {}), remote.company);
+                if (remote.config        && typeof remote.config        === 'object') Object.assign(state.config        || (state.config        = {}), remote.config);
+                if (remote.lastOsCounter && typeof remote.lastOsCounter === 'object') state.lastOsCounter = { ...(state.lastOsCounter || {}), ...remote.lastOsCounter };
+                // Persiste no IndexedDB local
                 await LocalFirst.rewriteAll();
-                try { Dashboard.update(); } catch(e) {}
-                try { Config.load(); } catch(e) {}
-                Toast.show('✅ Dados restaurados da nuvem!', 'success', 3500);
+                // Re-renderiza toda a UI
+                try { Dashboard.update(); }             catch(e) {}
+                try { Config.load?.(); }                catch(e) {}
+                try { App.updateCompanyDisplay?.(); }   catch(e) {}
+                try { Clients.renderTable?.(); }        catch(e) {}
+                try { Products.renderTable?.(); }       catch(e) {}
+                try { Sales.renderHistory?.(); }        catch(e) {}
+                try { Expenses.renderTable?.(); Expenses.updateSummary?.(); } catch(e) {}
+                try { Services.renderTable?.(); }       catch(e) {}
+                try { Suppliers.renderTable?.(); }      catch(e) {}
+                try { Utils.updatePixKey?.(); }         catch(e) {}
+                // Salva timestamp do último pull
+                localStorage.setItem(LS_LAST_PULL_TS, remote._ts || new Date().toISOString());
+                if (!silent) Toast.show('✅ Dados sincronizados da nuvem!', 'success', 2500);
+                return true;
             }
 
             // ════════════════════════════════════════════════════════════════
             //  GOOGLE DRIVE
             // ════════════════════════════════════════════════════════════════
+
             async function connectGDrive() {
                 const clientId = (document.getElementById('gdriveClientId')?.value?.trim()) || GDRIVE_DEFAULT_CLIENT;
-                if (!clientId) {
-                    Toast.show('⚠️ Informe o Client ID do Google Cloud Console para conectar.', 'warning', 5000);
-                    return;
-                }
-                // ── Implicit Flow (token) ── retorna access_token direto no hash
-                // Não exige client_secret nem backend — funciona 100% em PWA/SPA
-                // IMPORTANTE: no Google Cloud Console, configure o OAuth client como
-                // "Aplicativo da Web" e adicione a origem e redirect_uri autorizados.
+                if (!clientId) { Toast.show('⚠️ Informe o Client ID do Google Cloud Console para conectar.', 'warning', 5000); return; }
                 const state_val = _randomStr(16);
                 sessionStorage.setItem('gdrive_state',  state_val);
                 sessionStorage.setItem('gdrive_client', clientId);
@@ -8854,110 +8878,187 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                 window.location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + params;
             }
 
-            // ── Token chega no hash — não há troca de código (implicit flow)
             function _handleGDriveImplicitCallback(hashParams) {
                 const accessToken = hashParams.get('access_token');
                 const state_val   = hashParams.get('state');
                 const expiresIn   = parseInt(hashParams.get('expires_in') || '3600', 10);
                 if (!accessToken) return false;
                 if (sessionStorage.getItem('gdrive_state') !== state_val) {
-                    Toast.show('⚠️ Falha de segurança no callback Google Drive (state inválido).', 'danger');
+                    Toast.show('⚠️ Falha de segurança no callback Google (state inválido).', 'danger');
                     return false;
                 }
-                const clientId = sessionStorage.getItem('gdrive_client') || '';
                 _gdriveToken = {
                     access_token: accessToken,
                     expires_at:   Date.now() + expiresIn * 1000,
-                    client_id:    clientId
+                    client_id:    sessionStorage.getItem('gdrive_client') || ''
                 };
                 _activeProvider = 'gdrive';
                 _saveTokens();
                 sessionStorage.removeItem('gdrive_state');
                 sessionStorage.removeItem('gdrive_client');
                 _updateUI();
-                Toast.show('✅ Google Drive conectado!', 'success', 3500);
                 history.replaceState({}, '', location.pathname);
+                Toast.show('✅ Google Drive conectado! Sincronizando...', 'success', 3000);
+                // Ao conectar: pull imediato + inicia polling
+                setTimeout(() => { gdrivePull(true).catch(()=>{}); }, 800);
+                _startPolling();
                 return true;
             }
 
-            async function gdrivePush() {
-                if (!_gdriveToken || _isExpired(_gdriveToken)) { Toast.show('⚠️ Token Google Drive expirado. Reconecte.', 'warning'); return; }
-                Toast.show('☁️ Enviando dados para o Google Drive...', 'info', 2000);
-                const data = JSON.stringify(_collectAllData(), null, 2);
+            // ── Obtém ou cria o fileId no Drive (com cache) ───────────────────
+            async function _gdriveGetOrCreateFileId() {
+                // Usa cache em memória primeiro
+                if (_gdriveFileId) {
+                    // Valida se o arquivo ainda existe
+                    try {
+                        const r = await fetch(
+                            'https://www.googleapis.com/drive/v3/files/' + _gdriveFileId + '?fields=id',
+                            { headers: { Authorization: 'Bearer ' + _gdriveToken.access_token } }
+                        );
+                        if (r.ok) return _gdriveFileId;
+                    } catch(e) {}
+                    // Arquivo não existe mais — limpa cache
+                    _gdriveFileId = null;
+                    localStorage.removeItem(LS_GDRIVE_FILE_ID);
+                }
+                // Busca por nome
+                const searchResp = await fetch(
+                    'https://www.googleapis.com/drive/v3/files?spaces=drive&q=name%3D%22' + FILE_NAME + '%22%20and%20trashed%3Dfalse&fields=files(id,modifiedTime)',
+                    { headers: { Authorization: 'Bearer ' + _gdriveToken.access_token } }
+                );
+                const found = await searchResp.json();
+                if (found.files?.[0]?.id) {
+                    _gdriveFileId = found.files[0].id;
+                    localStorage.setItem(LS_GDRIVE_FILE_ID, _gdriveFileId);
+                    return _gdriveFileId;
+                }
+                return null; // Não existe — será criado no push
+            }
+
+            // ── Obtém modifiedTime do arquivo no Drive ────────────────────────
+            async function _gdriveGetModifiedTime(fileId) {
                 try {
-                    // Verifica se arquivo já existe
-                    const searchResp = await fetch(
-                        'https://www.googleapis.com/drive/v3/files?spaces=drive&q=name%3D%22' + FILE_NAME + '%22&fields=files(id)',
+                    const r = await fetch(
+                        'https://www.googleapis.com/drive/v3/files/' + fileId + '?fields=modifiedTime',
                         { headers: { Authorization: 'Bearer ' + _gdriveToken.access_token } }
                     );
-                    const found = await searchResp.json();
-                    const fileId = found.files?.[0]?.id;
-                    const url = fileId
-                        ? 'https://www.googleapis.com/upload/drive/v3/files/' + fileId + '?uploadType=media'
-                        : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+                    const d = await r.json();
+                    return d.modifiedTime || null;
+                } catch(e) { return null; }
+            }
+
+            // ── Push para Google Drive ────────────────────────────────────────
+            async function gdrivePush(silent) {
+                if (!_gdriveToken || _isExpired(_gdriveToken)) {
+                    if (!silent) Toast.show('⚠️ Token Google Drive expirado. Reconecte.', 'warning');
+                    return;
+                }
+                if (_pushing) return;
+                _pushing = true;
+                try {
+                    const data = JSON.stringify(_collectAllData(), null, 2);
+                    const fileId = await _gdriveGetOrCreateFileId();
                     if (fileId) {
-                        await fetch(url, {
-                            method: 'PATCH',
-                            headers: { Authorization: 'Bearer ' + _gdriveToken.access_token, 'Content-Type': 'application/json' },
-                            body: data
-                        });
+                        // Atualiza arquivo existente
+                        await fetch(
+                            'https://www.googleapis.com/upload/drive/v3/files/' + fileId + '?uploadType=media',
+                            { method: 'PATCH', headers: { Authorization: 'Bearer ' + _gdriveToken.access_token, 'Content-Type': 'application/json' }, body: data }
+                        );
                     } else {
+                        // Cria novo arquivo
                         const meta = JSON.stringify({ name: FILE_NAME, mimeType: 'application/json' });
                         const form = new FormData();
                         form.append('metadata', new Blob([meta], { type: 'application/json' }));
                         form.append('file',     new Blob([data], { type: 'application/json' }));
-                        await fetch(url, { method: 'POST', headers: { Authorization: 'Bearer ' + _gdriveToken.access_token }, body: form });
+                        const r = await fetch(
+                            'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
+                            { method: 'POST', headers: { Authorization: 'Bearer ' + _gdriveToken.access_token }, body: form }
+                        );
+                        const created = await r.json();
+                        if (created.id) { _gdriveFileId = created.id; localStorage.setItem(LS_GDRIVE_FILE_ID, _gdriveFileId); }
                     }
+                    const now = new Date().toLocaleTimeString('pt-BR');
                     localStorage.setItem('cs_gdrive_last_push', new Date().toISOString());
-                    _updateStatus('gdrive', '🟢 Último envio: ' + new Date().toLocaleTimeString('pt-BR'));
-                    Toast.show('✅ Dados enviados ao Google Drive!', 'success');
+                    _updateStatus('🟢 Último envio: ' + now);
+                    _showSyncIndicator('Salvo na nuvem ' + now);
+                    if (!silent) Toast.show('✅ Dados enviados ao Google Drive!', 'success', 2000);
                 } catch(e) {
-                    Toast.show('❌ Erro ao enviar para Drive: ' + e.message, 'danger');
+                    if (!silent) Toast.show('❌ Erro ao enviar ao Drive: ' + e.message, 'danger');
+                    else console.warn('[CloudSync] gdrivePush silencioso falhou:', e.message);
+                } finally {
+                    _pushing = false;
                 }
             }
 
-            async function gdrivePull() {
-                if (!_gdriveToken || _isExpired(_gdriveToken)) { Toast.show('⚠️ Token Google Drive expirado. Reconecte.', 'warning'); return; }
-                Toast.show('☁️ Baixando dados do Google Drive...', 'info', 2000);
+            // ── Pull do Google Drive (com verificação de modifiedTime) ─────────
+            async function gdrivePull(silent) {
+                if (!_gdriveToken || _isExpired(_gdriveToken)) {
+                    if (!silent) Toast.show('⚠️ Token Google Drive expirado. Reconecte.', 'warning');
+                    return;
+                }
+                if (_pulling) return;
+                _pulling = true;
                 try {
-                    const searchResp = await fetch(
-                        'https://www.googleapis.com/drive/v3/files?spaces=drive&q=name%3D%22' + FILE_NAME + '%22&fields=files(id)',
-                        { headers: { Authorization: 'Bearer ' + _gdriveToken.access_token } }
-                    );
-                    const found = await searchResp.json();
-                    const fileId = found.files?.[0]?.id;
-                    if (!fileId) { Toast.show('⚠️ Nenhum arquivo de backup encontrado no Google Drive.', 'warning'); return; }
+                    const fileId = await _gdriveGetOrCreateFileId();
+                    if (!fileId) {
+                        if (!silent) Toast.show('⚠️ Nenhum arquivo de backup encontrado no Google Drive.', 'warning');
+                        _pulling = false;
+                        return;
+                    }
+                    // ── Verifica se o arquivo remoto é mais novo que o último pull ─
+                    const remoteTs = await _gdriveGetModifiedTime(fileId);
+                    const lastPull = localStorage.getItem(LS_LAST_PULL_TS);
+                    if (silent && remoteTs && lastPull) {
+                        const remoteDate = new Date(remoteTs).getTime();
+                        const lastDate   = new Date(lastPull).getTime();
+                        if (remoteDate <= lastDate) {
+                            // Arquivo remoto não mudou desde o último pull — ignora
+                            _pulling = false;
+                            return;
+                        }
+                    }
+                    // ── Baixa o conteúdo ──────────────────────────────────────
+                    if (!silent) Toast.show('☁️ Baixando dados do Google Drive...', 'info', 1500);
                     const fileResp = await fetch(
                         'https://www.googleapis.com/drive/v3/files/' + fileId + '?alt=media',
                         { headers: { Authorization: 'Bearer ' + _gdriveToken.access_token } }
                     );
                     const remote = await fileResp.json();
-                    await _applyCloudData(remote);
+                    // ── Verifica se o remoto é mais novo que o local via _ts ──
+                    if (silent && remote._ts && lastPull) {
+                        if (new Date(remote._ts).getTime() <= new Date(lastPull).getTime()) {
+                            _pulling = false;
+                            return;
+                        }
+                    }
+                    await _applyCloudData(remote, silent);
+                    if (silent) _showSyncIndicator('Sincronizado ' + new Date().toLocaleTimeString('pt-BR'));
                 } catch(e) {
-                    Toast.show('❌ Erro ao baixar do Drive: ' + e.message, 'danger');
+                    if (!silent) Toast.show('❌ Erro ao baixar do Drive: ' + e.message, 'danger');
+                    else console.warn('[CloudSync] gdrivePull silencioso falhou:', e.message);
+                } finally {
+                    _pulling = false;
                 }
             }
 
             function gdriveDisconnect() {
-                _gdriveToken = null;
+                _gdriveToken = null; _gdriveFileId = null;
                 if (_activeProvider === 'gdrive') _activeProvider = null;
                 localStorage.removeItem('cs_gdrive_token');
+                localStorage.removeItem(LS_GDRIVE_FILE_ID);
                 localStorage.setItem('cs_active_provider', _activeProvider || '');
+                _stopPolling();
                 _updateUI();
                 Toast.show('Google Drive desconectado', 'info');
             }
 
             // ════════════════════════════════════════════════════════════════
-            //  ONEDRIVE (Microsoft Graph)
+            //  ONEDRIVE
             // ════════════════════════════════════════════════════════════════
+
             async function connectOneDrive() {
                 const clientId = (document.getElementById('onedriveClientId')?.value?.trim()) || ONEDRIVE_DEFAULT_CLIENT;
-                if (!clientId) {
-                    Toast.show('⚠️ Informe o Client ID do Azure para conectar via OneDrive.', 'warning', 5000);
-                    return;
-                }
-                // ── Implicit Flow (token) ── retorna access_token direto no hash
-                // IMPORTANTE: no Azure Portal, registre o app como SPA e adicione a redirect_uri.
+                if (!clientId) { Toast.show('⚠️ Informe o Client ID do Azure para conectar.', 'warning', 5000); return; }
                 const state_val = _randomStr(16);
                 sessionStorage.setItem('od_state',  state_val);
                 sessionStorage.setItem('od_client', clientId);
@@ -8972,7 +9073,6 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                 window.location.href = 'https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?' + params;
             }
 
-            // ── Token OneDrive chega no hash (implicit flow)
             function _handleOneDriveImplicitCallback(hashParams) {
                 const accessToken = hashParams.get('access_token');
                 const state_val   = hashParams.get('state');
@@ -8982,148 +9082,219 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                     Toast.show('⚠️ Falha de segurança no callback OneDrive (state inválido).', 'danger');
                     return false;
                 }
-                const clientId = sessionStorage.getItem('od_client') || '';
                 _onedriveToken = {
                     access_token: accessToken,
                     expires_at:   Date.now() + expiresIn * 1000,
-                    client_id:    clientId
+                    client_id:    sessionStorage.getItem('od_client') || ''
                 };
                 _activeProvider = 'onedrive';
                 _saveTokens();
                 sessionStorage.removeItem('od_state');
                 sessionStorage.removeItem('od_client');
                 _updateUI();
-                Toast.show('✅ OneDrive conectado!', 'success', 3500);
                 history.replaceState({}, '', location.pathname);
+                Toast.show('✅ OneDrive conectado! Sincronizando...', 'success', 3000);
+                setTimeout(() => { onedrivePull(true).catch(()=>{}); }, 800);
+                _startPolling();
                 return true;
             }
 
-            async function onedrivePush() {
-                if (!_onedriveToken || _isExpired(_onedriveToken)) { Toast.show('⚠️ Token OneDrive expirado. Reconecte.', 'warning'); return; }
-                Toast.show('☁️ Enviando dados para o OneDrive...', 'info', 2000);
-                const data = JSON.stringify(_collectAllData(), null, 2);
+            // ── Obtém fileId do OneDrive (com cache) ──────────────────────────
+            async function _odGetFileId() {
+                if (_odFileId) {
+                    try {
+                        const r = await fetch(
+                            'https://graph.microsoft.com/v1.0/me/drive/items/' + _odFileId,
+                            { headers: { Authorization: 'Bearer ' + _onedriveToken.access_token } }
+                        );
+                        if (r.ok) return _odFileId;
+                    } catch(e) {}
+                    _odFileId = null;
+                    localStorage.removeItem(LS_OD_FILE_ID);
+                }
                 try {
-                    const url = 'https://graph.microsoft.com/v1.0/me/drive/root:/' + FILE_NAME + ':/content';
-                    await fetch(url, {
-                        method: 'PUT',
-                        headers: {
-                            Authorization: 'Bearer ' + _onedriveToken.access_token,
-                            'Content-Type': 'application/json'
-                        },
-                        body: data
-                    });
+                    const r = await fetch(
+                        'https://graph.microsoft.com/v1.0/me/drive/root:/' + FILE_NAME + ':/driveItem?$select=id,lastModifiedDateTime',
+                        { headers: { Authorization: 'Bearer ' + _onedriveToken.access_token } }
+                    );
+                    if (r.ok) {
+                        const d = await r.json();
+                        if (d.id) { _odFileId = d.id; localStorage.setItem(LS_OD_FILE_ID, _odFileId); return _odFileId; }
+                    }
+                } catch(e) {}
+                return null;
+            }
+
+            async function onedrivePush(silent) {
+                if (!_onedriveToken || _isExpired(_onedriveToken)) {
+                    if (!silent) Toast.show('⚠️ Token OneDrive expirado. Reconecte.', 'warning');
+                    return;
+                }
+                if (_pushing) return;
+                _pushing = true;
+                try {
+                    const data = JSON.stringify(_collectAllData(), null, 2);
+                    const r = await fetch(
+                        'https://graph.microsoft.com/v1.0/me/drive/root:/' + FILE_NAME + ':/content',
+                        { method: 'PUT', headers: { Authorization: 'Bearer ' + _onedriveToken.access_token, 'Content-Type': 'application/json' }, body: data }
+                    );
+                    if (r.ok) {
+                        const d = await r.json();
+                        if (d.id) { _odFileId = d.id; localStorage.setItem(LS_OD_FILE_ID, _odFileId); }
+                    }
+                    const now = new Date().toLocaleTimeString('pt-BR');
                     localStorage.setItem('cs_od_last_push', new Date().toISOString());
-                    _updateStatus('onedrive', '🟢 Último envio: ' + new Date().toLocaleTimeString('pt-BR'));
-                    Toast.show('✅ Dados enviados ao OneDrive!', 'success');
+                    _updateStatus('🟢 OneDrive — último envio: ' + now);
+                    _showSyncIndicator('Salvo na nuvem ' + now);
+                    if (!silent) Toast.show('✅ Dados enviados ao OneDrive!', 'success', 2000);
                 } catch(e) {
-                    Toast.show('❌ Erro ao enviar para OneDrive: ' + e.message, 'danger');
+                    if (!silent) Toast.show('❌ Erro ao enviar ao OneDrive: ' + e.message, 'danger');
+                } finally {
+                    _pushing = false;
                 }
             }
 
-            async function onedrivePull() {
-                if (!_onedriveToken || _isExpired(_onedriveToken)) { Toast.show('⚠️ Token OneDrive expirado. Reconecte.', 'warning'); return; }
-                Toast.show('☁️ Baixando dados do OneDrive...', 'info', 2000);
+            async function onedrivePull(silent) {
+                if (!_onedriveToken || _isExpired(_onedriveToken)) {
+                    if (!silent) Toast.show('⚠️ Token OneDrive expirado. Reconecte.', 'warning');
+                    return;
+                }
+                if (_pulling) return;
+                _pulling = true;
                 try {
-                    const url = 'https://graph.microsoft.com/v1.0/me/drive/root:/' + FILE_NAME + ':/content';
-                    const resp = await fetch(url, { headers: { Authorization: 'Bearer ' + _onedriveToken.access_token } });
-                    if (!resp.ok) { Toast.show('⚠️ Arquivo não encontrado no OneDrive.', 'warning'); return; }
-                    const remote = await resp.json();
-                    await _applyCloudData(remote);
+                    if (!silent) Toast.show('☁️ Baixando dados do OneDrive...', 'info', 1500);
+                    const r = await fetch(
+                        'https://graph.microsoft.com/v1.0/me/drive/root:/' + FILE_NAME + ':/content',
+                        { headers: { Authorization: 'Bearer ' + _onedriveToken.access_token } }
+                    );
+                    if (!r.ok) {
+                        if (!silent) Toast.show('⚠️ Nenhum arquivo encontrado no OneDrive.', 'warning');
+                        _pulling = false; return;
+                    }
+                    const remote = await r.json();
+                    // Verifica se o remoto é mais novo
+                    if (silent && remote._ts) {
+                        const lastPull = localStorage.getItem(LS_LAST_PULL_TS);
+                        if (lastPull && new Date(remote._ts).getTime() <= new Date(lastPull).getTime()) {
+                            _pulling = false; return;
+                        }
+                    }
+                    await _applyCloudData(remote, silent);
+                    if (silent) _showSyncIndicator('Sincronizado ' + new Date().toLocaleTimeString('pt-BR'));
                 } catch(e) {
-                    Toast.show('❌ Erro ao baixar do OneDrive: ' + e.message, 'danger');
+                    if (!silent) Toast.show('❌ Erro ao baixar do OneDrive: ' + e.message, 'danger');
+                } finally {
+                    _pulling = false;
                 }
             }
 
             function onedriveDisconnect() {
-                _onedriveToken = null;
+                _onedriveToken = null; _odFileId = null;
                 if (_activeProvider === 'onedrive') _activeProvider = null;
                 localStorage.removeItem('cs_onedrive_token');
+                localStorage.removeItem(LS_OD_FILE_ID);
                 localStorage.setItem('cs_active_provider', _activeProvider || '');
+                _stopPolling();
                 _updateUI();
                 Toast.show('OneDrive desconectado', 'info');
             }
 
-            // ── Auto-sync: push silencioso se já conectado ───────────────────
-            async function autoSync() {
+            // ════════════════════════════════════════════════════════════════
+            //  POLLING — detecta mudanças de outros dispositivos a cada 30s
+            // ════════════════════════════════════════════════════════════════
+            function _startPolling() {
+                _stopPolling();
+                _pollTimer = setInterval(() => {
+                    if (document.visibilityState === 'hidden') return; // não faz nada com aba oculta
+                    _silentPull();
+                }, POLL_INTERVAL_MS);
+                console.log('[CloudSync] ✅ Polling iniciado (a cada ' + (POLL_INTERVAL_MS/1000) + 's)');
+            }
+
+            function _stopPolling() {
+                if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+            }
+
+            function _silentPull() {
                 try {
-                    if (_activeProvider === 'gdrive'    && _gdriveToken && !_isExpired(_gdriveToken))   { await gdrivePush(); return; }
-                    if (_activeProvider === 'onedrive'  && _onedriveToken && !_isExpired(_onedriveToken)) { await onedrivePush(); return; }
+                    if (_activeProvider === 'gdrive'   && _gdriveToken   && !_isExpired(_gdriveToken))   gdrivePull(true).catch(()=>{});
+                    if (_activeProvider === 'onedrive' && _onedriveToken && !_isExpired(_onedriveToken)) onedrivePull(true).catch(()=>{});
+                } catch(e) {}
+            }
+
+            // ── Push agendado com debounce (chamado após cada save) ───────────
+            function _schedulePush() {
+                clearTimeout(_pushTimer);
+                _pushTimer = setTimeout(() => { _silentPush(); }, PUSH_DEBOUNCE_MS);
+            }
+
+            function _silentPush() {
+                try {
+                    if (_activeProvider === 'gdrive'   && _gdriveToken   && !_isExpired(_gdriveToken))   gdrivePush(true).catch(()=>{});
+                    if (_activeProvider === 'onedrive' && _onedriveToken && !_isExpired(_onedriveToken)) onedrivePush(true).catch(()=>{});
+                } catch(e) {}
+            }
+
+            // ── Indicador visual de sync (canto inferior direito) ─────────────
+            function _showSyncIndicator(msg) {
+                try {
+                    const el = document.getElementById('cloudSyncIndicator');
+                    const tx = document.getElementById('cloudSyncText');
+                    if (!el || !tx) return;
+                    tx.textContent = msg;
+                    el.style.display = 'flex';
+                    clearTimeout(el._hideTimer);
+                    el._hideTimer = setTimeout(() => { el.style.display = 'none'; }, 3000);
                 } catch(e) {}
             }
 
             // ── UI ───────────────────────────────────────────────────────────
             function showTab(tab) {
-                document.getElementById('cloudPanelGdrive')?.style.setProperty('display', tab==='gdrive' ? 'block' : 'none');
-                document.getElementById('cloudPanelOnedrive')?.style.setProperty('display', tab==='onedrive' ? 'block' : 'none');
+                document.getElementById('cloudPanelGdrive')?.style.setProperty('display',   tab === 'gdrive'    ? 'block' : 'none');
+                document.getElementById('cloudPanelOnedrive')?.style.setProperty('display', tab === 'onedrive'  ? 'block' : 'none');
             }
-            function _updateStatus(provider, text) {
+
+            function _updateStatus(text) {
                 const el = document.getElementById('cloudSyncStatus');
                 if (el) el.textContent = text;
             }
+
             function _updateUI() {
-                const gOk = _gdriveToken && !_isExpired(_gdriveToken);
+                const gOk = _gdriveToken   && !_isExpired(_gdriveToken);
                 const oOk = _onedriveToken && !_isExpired(_onedriveToken);
-                // Google Drive
                 const gDis = document.getElementById('gdriveDisconnected');
                 const gCon = document.getElementById('gdriveConnected');
-                if (gDis) gDis.style.display = gOk ? 'none' : 'block';
+                if (gDis) gDis.style.display = gOk ? 'none'  : 'block';
                 if (gCon) gCon.style.display = gOk ? 'block' : 'none';
-                // OneDrive
                 const oDis = document.getElementById('onedriveDisconnected');
                 const oCon = document.getElementById('onedriveConnected');
-                if (oDis) oDis.style.display = oOk ? 'none' : 'block';
+                if (oDis) oDis.style.display = oOk ? 'none'  : 'block';
                 if (oCon) oCon.style.display = oOk ? 'block' : 'none';
-                // Status geral
                 const status = document.getElementById('cloudSyncStatus');
                 if (status) {
-                    if (gOk) status.textContent = '🟢 Google Drive conectado — sync automático ativo';
-                    else if (oOk) status.textContent = '🟢 OneDrive conectado — sync automático ativo';
-                    else status.textContent = '⚫ Nenhum provedor conectado — dados apenas locais';
+                    if (gOk)      status.textContent = '🟢 Google Drive — sync em tempo real ativo (' + (POLL_INTERVAL_MS/1000) + 's)';
+                    else if (oOk) status.textContent = '🟢 OneDrive — sync em tempo real ativo (' + (POLL_INTERVAL_MS/1000) + 's)';
+                    else          status.textContent = '⚫ Nenhum provedor conectado — dados apenas locais';
                 }
             }
 
-            // ── Trata callback OAuth2 na URL ─────────────────────────────────
-            // Implicit Flow: token chega no #hash (Google Drive e OneDrive)
-            // Authorization Code: token chega em ?code= na query (legado — não usado mais)
+            // ── Trata callback OAuth2 na URL ──────────────────────────────────
             function _handleOAuthCallback() {
-                // ── 1. Verifica hash (implicit flow — acesso_token direto)
                 const rawHash = location.hash.substring(1);
-                if (rawHash) {
-                    const hashParams = new URLSearchParams(rawHash);
-                    if (hashParams.get('access_token')) {
-                        // Descobre qual provedor pelo state guardado em sessionStorage
-                        const stateVal = hashParams.get('state');
-                        if (sessionStorage.getItem('gdrive_state') === stateVal) {
-                            _handleGDriveImplicitCallback(hashParams);
-                            return;
-                        }
-                        if (sessionStorage.getItem('od_state') === stateVal) {
-                            _handleOneDriveImplicitCallback(hashParams);
-                            return;
-                        }
-                        // Fallback: tenta gdrive primeiro se state não casar
-                        if (sessionStorage.getItem('gdrive_state')) {
-                            _handleGDriveImplicitCallback(hashParams);
-                        } else if (sessionStorage.getItem('od_state')) {
-                            _handleOneDriveImplicitCallback(hashParams);
-                        }
-                        return;
-                    }
-                }
-                // ── 2. Sem hash — nada a fazer (implicit flow não usa ?code=)
+                if (!rawHash) return;
+                const hashParams = new URLSearchParams(rawHash);
+                if (!hashParams.get('access_token')) return;
+                const stateVal = hashParams.get('state');
+                if      (sessionStorage.getItem('gdrive_state') === stateVal) _handleGDriveImplicitCallback(hashParams);
+                else if (sessionStorage.getItem('od_state')     === stateVal) _handleOneDriveImplicitCallback(hashParams);
+                else if (sessionStorage.getItem('gdrive_state'))              _handleGDriveImplicitCallback(hashParams);
+                else if (sessionStorage.getItem('od_state'))                  _handleOneDriveImplicitCallback(hashParams);
             }
 
-            // ── Sync automático ao retornar para a aba/janela ───────────────
+            // ── Sync ao focar na aba (pull inteligente) ───────────────────────
             document.addEventListener('visibilitychange', () => {
                 if (document.visibilityState === 'visible') {
-                    try {
-                        if (_activeProvider === 'gdrive' && _gdriveToken && !_isExpired(_gdriveToken)) {
-                            // Pull silencioso ao focar na aba — garante dados frescos entre dispositivos
-                            setTimeout(() => gdrivePull().catch(() => {}), 800);
-                        } else if (_activeProvider === 'onedrive' && _onedriveToken && !_isExpired(_onedriveToken)) {
-                            setTimeout(() => onedrivePull().catch(() => {}), 800);
-                        }
-                    } catch(e) {}
+                    setTimeout(() => _silentPull(), 600);
                 }
             });
 
@@ -9131,19 +9302,26 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
             _loadTokens();
             window.addEventListener('load', () => {
                 _handleOAuthCallback();
-                setTimeout(_updateUI, 500);
+                setTimeout(() => {
+                    _updateUI();
+                    // Se já estava conectado, retoma polling e faz pull inicial
+                    if (_activeProvider === 'gdrive'   && _gdriveToken   && !_isExpired(_gdriveToken))   { _startPolling(); setTimeout(() => gdrivePull(true).catch(()=>{}), 1500); }
+                    if (_activeProvider === 'onedrive' && _onedriveToken && !_isExpired(_onedriveToken)) { _startPolling(); setTimeout(() => onedrivePull(true).catch(()=>{}), 1500); }
+                }, 500);
             });
 
             return {
                 connectGDrive, gdrivePush, gdrivePull, gdriveDisconnect,
                 connectOneDrive, onedrivePush, onedrivePull, onedriveDisconnect,
-                showTab, autoSync, _updateUI,
+                showTab, _updateUI,
+                // autoSync agora é push agendado com debounce
+                autoSync() { _schedulePush(); },
                 get connected() { return !!(_gdriveToken || _onedriveToken); },
-                get provider() { return _activeProvider; }
+                get provider()  { return _activeProvider; }
             };
         })();
         // ══════════════════════════════════════════════════════════════════════
-        //  /CloudSync
+        //  /CloudSync v2
         // ══════════════════════════════════════════════════════════════════════
 
         async function idbSave(key, value) { return IDB.set(key, value); }
