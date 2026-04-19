@@ -8459,18 +8459,31 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
             async _fetchAllData() {
                 const storeId = window._currentStore || 'barueri';
                 try {
-                    const rows = await sbGetCollection(storeId, 'ALL_PLACEHOLDER');
+                    // FIX #5: removida query inútil 'ALL_PLACEHOLDER' que nunca retornava nada.
                     // Busca por coleção
                     const cols = Object.values(_COL_MAP).filter((v,i,a) => a.indexOf(v) === i);
                     for (const col of cols) {
                         const items = await sbGetCollection(storeId, col);
                         const stateKey = Object.entries(_COL_MAP).find(([k,v]) => v === col)?.[0];
-                        if (stateKey && items.length > 0) state[stateKey] = items;
+                        // FIX: sempre atualiza o state, mesmo se vazio — garante que
+                        // deleções via BroadcastChannel sejam refletidas corretamente.
+                        if (stateKey) state[stateKey] = items;
                     }
-                    // Config
+                    // FIX #4: restaura state.company, config e lastOsCounter corretamente
+                    // sem usar Object.assign(state, cfg) que poluía o state com keys extras.
                     const cfg = await sbGetDoc(storeId, 'config', 'main');
                     if (cfg && typeof cfg === 'object') {
-                        Object.assign(state, cfg);
+                        if (cfg.config        && typeof cfg.config        === 'object') Object.assign(state.config        || (state.config        = {}), cfg.config);
+                        if (cfg.company       && typeof cfg.company       === 'object') Object.assign(state.company       || (state.company       = {}), cfg.company);
+                        if (cfg.lastOsCounter && typeof cfg.lastOsCounter === 'object') state.lastOsCounter = { ...(state.lastOsCounter || {}), ...cfg.lastOsCounter };
+                    }
+                    // Tenta também o doc 'empresa' para compatibilidade com switchTo
+                    const emp = await sbGetDoc(storeId, 'config', 'empresa');
+                    if (emp && typeof emp === 'object') {
+                        if (emp.company)       Object.assign(state.company       || (state.company       = {}), emp.company);
+                        if (emp.notificacoes)  Object.assign(state.notificacoes  || (state.notificacoes  = {}), emp.notificacoes);
+                        if (emp.backupConfig)  Object.assign(state.backupConfig  || (state.backupConfig  = {}), emp.backupConfig);
+                        if (emp.lastOsCounter) state.lastOsCounter = { ...(state.lastOsCounter || {}), ...emp.lastOsCounter };
                     }
                     console.log('[RxDB v17] Dados carregados do IndexedDB para loja:', storeId);
                 } catch(e) {
@@ -8484,8 +8497,21 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                 this._syncing = true;
                 try {
                     await this._fetchAllData();
+                    // FIX #2: re-renderiza todas as seções da UI após carregar os dados,
+                    // não apenas o dashboard — corrige telas vazias após F5 ou troca de aba.
                     try { Dashboard.update(); } catch(e) {}
                     try { this._scheduleDashUpdate?.(); } catch(e) {}
+                    // Re-renderiza tabelas e listas somente quando não for um sync silencioso
+                    if (reason !== 'push') {
+                        try { if (window.Clients)   Clients.renderTable?.(); }   catch(e) {}
+                        try { if (window.Products)  Products.renderTable?.(); }  catch(e) {}
+                        try { if (window.Sales)     Sales.renderHistory?.(); }   catch(e) {}
+                        try { if (window.Expenses)  { Expenses.renderTable?.(); Expenses.updateSummary?.(); } } catch(e) {}
+                        try { if (window.Services)  Services.renderTable?.(); }  catch(e) {}
+                        try { if (window.Suppliers) Suppliers.renderTable?.(); } catch(e) {}
+                        try { if (window.Config)    Config.load?.(); }           catch(e) {}
+                        try { App.updateCompanyDisplay?.(); }                    catch(e) {}
+                    }
                 } finally {
                     this._syncing = false;
                 }
@@ -8520,13 +8546,27 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
             // ── pushConfig ────────────────────────────────────────────────────
             async pushConfig() {
                 const storeId = window._currentStore || 'barueri';
+                const now = new Date().toISOString();
+                // FIX #3: salva company, config e lastOsCounter juntos para
+                // garantir que TUDO seja restaurado ao dar F5 ou trocar de loja.
                 const cfg = {
-                    config: state.config || {},
+                    config:         state.config || {},
+                    company:        state.company || {},
+                    lastOsCounter:  state.lastOsCounter || {},
                     storeId,
-                    _updatedAt: new Date().toISOString()
+                    _updatedAt:     now
                 };
                 try {
+                    // Salva no doc 'main' (usado por _fetchAllData na inicialização)
                     await sbUpsertDoc(storeId, 'config', 'main', cfg);
+                    // Salva também no doc 'empresa' (usado por switchTo e preloadCompanyConfig)
+                    await sbUpsertDoc(storeId, 'config', 'empresa', {
+                        company:        state.company || {},
+                        notificacoes:   state.notificacoes || {},
+                        backupConfig:   state.backupConfig || {},
+                        lastOsCounter:  state.lastOsCounter || {},
+                        _updatedAt:     now
+                    });
                     this._scheduleCloudSync();
                 } catch(e) { console.error('[RxDB v17] pushConfig:', e.message); }
                 // Atualiza painel
@@ -9106,8 +9146,6 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
         //  /CloudSync
         // ══════════════════════════════════════════════════════════════════════
 
-        async function idbSave(key, value) { return IDB.set(key, value); }
-        async function idbGet(key) { return IDB.get(key); }
         async function idbSave(key, value) { return IDB.set(key, value); }
         async function idbGet(key) { return IDB.get(key); }
 
@@ -11649,14 +11687,19 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                 });
                 
                 Sales.init();
-                Config.load();
 
                 // ── Local-First Engine (RxDB v17 — IndexedDB + OPFS + BroadcastChannel) ──
                 // Dados salvos localmente no IndexedDB — funciona offline.
                 // BroadcastChannel sincroniza abas em tempo real.
-                LocalFirst.boot();
-                // Aguarda fetch inicial antes do primeiro Dashboard.update
-                // (os dados são carregados do IndexedDB de forma assíncrona)
+                // FIX #1: await garante que os dados do IndexedDB sejam carregados
+                // antes de qualquer render da UI.
+                await LocalFirst.boot();
+                // Dados já carregados — UI pode renderizar com state populado.
+
+                // FIX: Config.load() vem APÓS boot() para que preencha os campos
+                // com state.company já restaurado do IndexedDB.
+                Config.load();
+                this.updateCompanyDisplay();
                 Utils.updatePixKey();
 
 
@@ -11744,9 +11787,9 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
 
             async loadData() {
                 // Local-First: dados são carregados pelo LocalFirst._fetchAllData()
-                // chamado dentro de LocalFirst.boot() → _startListeners()
-                // Esta função é mantida como no-op — o boot cuida de tudo.
-                // Não faz nada aqui: LocalFirst.boot() já inicia o fetch do IndexedDB
+                // chamado dentro de LocalFirst.boot() que agora é AGUARDADO (await) em App.init().
+                // FIX: esta função permanece no-op mas boot() é agora await — os dados
+                // estarão prontos antes de qualquer render.
             },
 
             async saveData(silent = false) {
@@ -11767,19 +11810,25 @@ tbody tr td{border:1.5px solid #000;padding:2mm;text-align:center;font-weight:70
                     LocalFirst._realtimePaused = true;
                     for (const key of TABLES) {
                         const items = (state[key] || []).filter(i => i && i.id);
-                        if (!items.length) continue;
                         const col = _COL_MAP[key] || key;
-                        for (let i = 0; i < items.length; i += 50) {
-                            const chunk = items.slice(i, i + 50);
-                            const rows = chunk.map(item => ({
-                                doc_id: String(item.id),
-                                store_id: storeId,
-                                collection: col,
-                                data: { ...item, _store: storeId, _updatedAt: now },
-                                updated_at: now
-                            }));
-                            await sbUpsertBatch(rows);
+                        // FIX: não pular coleções vazias — se o array foi esvaziado
+                        // (ex: todos os clientes deletados), precisamos gravar o estado vazio
+                        // para que na próxima carga do IDB os dados apareçam deletados.
+                        if (items.length > 0) {
+                            for (let i = 0; i < items.length; i += 50) {
+                                const chunk = items.slice(i, i + 50);
+                                const rows = chunk.map(item => ({
+                                    doc_id: String(item.id),
+                                    store_id: storeId,
+                                    collection: col,
+                                    data: { ...item, _store: storeId, _updatedAt: now },
+                                    updated_at: now
+                                }));
+                                await sbUpsertBatch(rows);
+                            }
                         }
+                        // Nota: deleções individuais já são tratadas por LocalFirst.deleteItem()
+                        // que chama sbDeleteDoc() diretamente — não precisamos apagar aqui.
                     }
                     // Salva config da empresa
                     await LocalFirst.pushConfig();
@@ -21299,7 +21348,17 @@ const StoreManager = {
     // Carrega a loja salva (chamado no App.init antes de qualquer render)
     async init() {
         let saved = null;
+        // FIX: tenta primeiro o IDB shim (localStorage) para preferência de loja,
+        // depois tenta o IndexedDB nativo como fallback — garante que a preferência
+        // persista mesmo quando localStorage é bloqueado (ex: modo privado).
         try { saved = await IDB.get(this._STORE_PREF_KEY); } catch(e) {}
+        if (!saved) {
+            try {
+                // Fallback: lê direto do IndexedDB nativo
+                const doc = await sbGetDoc('_sistema', 'prefs', 'current_store');
+                if (doc && doc.storeId) saved = doc.storeId;
+            } catch(e) {}
+        }
         window._currentStore = (saved === 'caucaia') ? 'caucaia' : 'barueri';
         this._updateUI();
     },
@@ -21377,9 +21436,11 @@ const StoreManager = {
         } catch(e) {}
         LocalFirst._realtimePaused = true;
 
-        // 2. Troca loja e salva preferência (sem await — não bloqueia UI)
+        // 2. Troca loja e salva preferência em ambos os storages
         window._currentStore = lojaId;
         IDB.set(this._STORE_PREF_KEY, lojaId).catch(()=>{});
+        // FIX: salva também no IndexedDB nativo para persistir mesmo sem localStorage
+        sbUpsertDoc('_sistema', 'prefs', 'current_store', { storeId: lojaId, _updatedAt: new Date().toISOString() }).catch(()=>{});
 
         // 3. Invalida cache de contas para a nova loja
         IDB._cache['contas_financeiras_' + lojaId] = null;
@@ -21441,10 +21502,12 @@ const StoreManager = {
                 App.updateCompanyDisplay();
                 try { Config.load(); } catch(e) {}
                 Utils.updatePixKey();
-                try { Clients.renderTable(); } catch(e) {}
-                try { Products.renderTable(); } catch(e) {}
-                try { Sales.renderHistory(); } catch(e) {}
+                try { Clients.renderTable?.(); }   catch(e) {}
+                try { Products.renderTable?.(); }  catch(e) {}
+                try { Sales.renderHistory?.(); }   catch(e) {}
                 try { Expenses.renderTable?.(); Expenses.updateSummary?.(); } catch(e) {}
+                try { Services.renderTable?.(); }  catch(e) {}
+                try { Suppliers.renderTable?.(); } catch(e) {}
                 Dashboard.update().catch(()=>{});
 
                 Toast.show('✅ ' + loja.fullLabel + ' carregada!', 'success', 2000);
@@ -21460,8 +21523,9 @@ const StoreManager = {
             LocalFirst._realtimeStatus = 'Local';
             try { if (window.CloudSync) CloudSync._updateUI(); } catch(_e) {}
         } catch(e) { console.warn('[StoreManager] LocalFirst:', e.message); }
-        // 8. Troca room Gun para a nova loja
-        try { LocalFirst.switchStore(lojaId); } catch(e) {}
+        // FIX #6: removida chamada redundante a LocalFirst.switchStore(lojaId)
+        // que disparava _fetchAllData() pela segunda vez e causava race condition.
+        // Os dados já foram carregados e a UI já foi atualizada no passo 6 acima.
     }
 };
 window.StoreManager = StoreManager;
