@@ -8588,8 +8588,10 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
             },
 
             // ── rewriteAll ────────────────────────────────────────────────────
-            async rewriteAll() {
-                Toast.show('💾 Re-gravando todos os dados no IndexedDB (RxDB v17)...', 'info', 3000);
+            // silent=true: suprime toasts e não dispara cloud push de volta
+            // (usado por _applyCloudData para evitar loop pull→push→pull)
+            async rewriteAll(silent = false) {
+                if (!silent) Toast.show('💾 Re-gravando todos os dados no IndexedDB (RxDB v17)...', 'info', 3000);
                 const storeId = window._currentStore || 'barueri';
                 const now = new Date().toISOString();
                 let total = 0, erros = 0;
@@ -8612,12 +8614,17 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                             catch(e) { erros++; console.error('[RxDB v17] rewriteAll', col, e.message); }
                         }
                     }
-                    try { await this.pushConfig(); } catch(e) {}
+                    // FIX LOOP: no modo silent (chamado por _applyCloudData) NÃO
+                    // chama pushConfig() para evitar disparar um cloud push de volta,
+                    // que geraria novo modifiedTime no Drive e alimentaria o loop.
+                    if (!silent) { try { await this.pushConfig(); } catch(e) {} }
                 } finally {
                     this._resumeRealtime(storeId);
                 }
-                if (erros === 0) Toast.show(`✅ ${total} registros salvos no IndexedDB (RxDB v17)!`, 'success', 4000);
-                else Toast.show(`⚠️ ${total} salvos, ${erros} erros. Veja console.`, 'warning', 5000);
+                if (!silent) {
+                    if (erros === 0) Toast.show(`✅ ${total} registros salvos no IndexedDB (RxDB v17)!`, 'success', 4000);
+                    else Toast.show(`⚠️ ${total} salvos, ${erros} erros. Veja console.`, 'warning', 5000);
+                }
             },
 
             // ── checkDB ───────────────────────────────────────────────────────
@@ -8875,8 +8882,9 @@ tr:hover td { background: rgba(255,107,0,0.03) !important; }
                         if (window.ContasManager) ContasManager.saveAll(remote.contasFinanceiras).catch(()=>{});
                     } catch(e) {}
                 }
-                // Persiste no IndexedDB local
-                await LocalFirst.rewriteAll();
+                // FIX LOOP: usa rewriteAll(true) para não mostrar toasts nem
+                // re-disparar cloud push, quebrando o ciclo pull→push→pull.
+                await LocalFirst.rewriteAll(true);
                 // Re-renderiza toda a UI
                 try { Dashboard.update(); }             catch(e) {}
                 try { Config.load?.(); }                catch(e) {}
