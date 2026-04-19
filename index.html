@@ -20189,8 +20189,6 @@ ${container.innerHTML}
 (function(){
 'use strict';
 
-});
-
 })();
 </script>
 
@@ -21188,7 +21186,9 @@ const StoreManager = {
         this.closeModal();
 
         // 1. Para Realtime da loja anterior imediatamente
-        try { // LocalFirst listeners managed automatically } catch(e) {}
+        try {
+            // LocalFirst listeners managed automatically
+        } catch(e) {}
         LocalFirst._realtimePaused = true;
 
         // 2. Troca loja e salva preferência (sem await — não bloqueia UI)
